@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Jib Jab Dashboard</title>
   <link rel="preconnect" href="https://cdn.jsdelivr.net" />
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
   <link rel="stylesheet" href="styles.css" />
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📈</text></svg>" />
 </head>
@@ -44,6 +44,15 @@
         </div>
       </div>
 
+      <div class="ctl">
+        <span class="ctl-label">NY Open killzone (ET)</span>
+        <div class="session-inputs">
+          <input type="time" id="sessStart" value="06:00" />
+          <span class="arrow">→</span>
+          <input type="time" id="sessEnd" value="09:00" />
+        </div>
+      </div>
+
       <label class="auto">
         <input type="checkbox" id="autoRefresh" checked />
         Auto-refresh (30s)
@@ -65,22 +74,34 @@
 
     <!-- Chart -->
     <section class="chart-card">
-      <canvas id="chart" height="120"></canvas>
+      <div class="chart-hint">🔍 Scroll / pinch to zoom · drag to pan · double-click to reset</div>
+      <div id="chart" class="chart-box"></div>
       <div class="loading" id="chartLoading">Fetching live data…</div>
     </section>
 
-    <!-- Summary -->
-    <section class="summary-card" id="summaryCard">
+    <!-- ICT / CRT Trade Assistant -->
+    <section class="summary-card" id="tradeCard">
       <div class="summary-head">
-        <h2>Signal Summary</h2>
+        <h2>ICT / CRT Trade Assistant</h2>
         <span class="verdict" id="verdict">—</span>
       </div>
-      <p class="summary-text" id="summaryText">Analyzing…</p>
+
+      <div class="session-bar" id="sessionBar">
+        <span class="dot"></span><span id="sessionText">Checking session…</span>
+      </div>
+
+      <p class="summary-text" id="summaryText">Analyzing NY Open model…</p>
+
+      <div class="plan-grid" id="planGrid"></div>
+
+      <h3 class="conf-title">Confluence checklist</h3>
       <ul class="signals" id="signalList"></ul>
+
       <p class="disclaimer">
-        ⚠️ Educational technical read-out only — <strong>not financial advice</strong>.
-        Signals are derived from price indicators (SMA, RSI, momentum) and can be wrong.
-        Do your own research before trading.
+        ⚠️ Educational ICT/CRT model read-out — <strong>not financial advice</strong>.
+        It detects liquidity sweeps, market-structure shifts, fair-value gaps and the
+        CRT candle model, gated to your NY Open killzone. No system is "accurate" — these
+        are probabilities, not certainties. Trade your own plan and manage risk.
       </p>
     </section>
   </main>
