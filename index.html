@@ -82,7 +82,7 @@
     <!-- ICT / CRT Trade Assistant -->
     <section class="summary-card" id="tradeCard">
       <div class="summary-head">
-        <h2>JadeCap Daily-Sweep Model</h2>
+        <h2>Trade Signal</h2>
         <span class="verdict" id="verdict">—</span>
       </div>
 
@@ -90,21 +90,16 @@
         <span class="dot"></span><span id="sessionText">Checking session…</span>
       </div>
 
-      <p class="summary-text" id="summaryText">Analyzing NY Open model…</p>
-
+      <p class="action-line wait" id="actionLine">Analyzing…</p>
       <div class="plan-grid" id="planGrid"></div>
-
-      <h3 class="conf-title">JadeCap checklist — 1H sweep → LTF entry</h3>
-      <ul class="signals" id="signalList"></ul>
+      <p class="summary-text" id="summaryText"></p>
 
       <p class="disclaimer">
-        ⚠️ Educational implementation of JadeCap's "Daily Sweep" model —
-        <strong>not financial advice</strong>, and not affiliated with or endorsed by
-        JadeCap. Bias comes from a 1-hour swing-failure (liquidity sweep that closes back
-        inside); entry is refined on your chart timeframe via a fair-value gap or structure
-        shift; stop sits beyond the swept wick and target is the next 1H liquidity, gated to
-        your NY Open killzone. He targets ~60–70% win rate — these are probabilities, not
-        certainties. Trade your own plan and manage risk.
+        ⚠️ Educational multi-strategy signal (EMA trend, VWAP, RSI, MACD, opening-range
+        breakout, and JadeCap's 1H liquidity sweep) — <strong>not financial advice</strong>,
+        not affiliated with JadeCap. It only calls BUY/SELL when several strategies agree
+        during your NY Open window, with a tight ~1.5R scalp plan. These are probabilities,
+        not certainties — size small and manage risk.
       </p>
     </section>
   </main>

@@ -16,21 +16,20 @@ No backend, no API key, no build step — just static files you can host anywher
   Candle times are shown in **New York time**.
 - **Day-trading timeframes** — one-click **1m / 5m / 15m / 1h / 1D**, each with a
   session-sized lookback. Defaults to the live **1-minute** view.
-- **JadeCap Daily-Sweep Model** — an educational implementation of JadeCap's
-  "one strategy for life." The engine:
-  1. **Bias from the 1-hour chart** — finds the most recent confirmed
-     **swing-failure pattern (SFP)**: price raids a 1H swing high/low and
-     *closes back inside*. Sweep of a high → short bias; sweep of a low → long.
-  2. **Refines entry on your chart timeframe** — an aligned fair-value gap or
-     market-structure shift.
-  3. **Stop** beyond the swept 1H wick; **target** the next opposing 1H liquidity.
-  4. **Premium/discount** check for entry location.
+- **One-glance Trade Signal** — a single **BUY / SELL / WAIT** call with a tight
+  scalp plan (entry, stop, target, ~1.5R). It combines **six independent intraday
+  strategies** and only fires when they agree (fewer, higher-quality entries):
+  1. **EMA trend** (9/21 direction, 50 regime)
+  2. **VWAP** position
+  3. **RSI** momentum
+  4. **MACD** histogram
+  5. **Opening-range breakout** (first 15 min of the session)
+  6. **JadeCap's 1H liquidity sweep** (swing-failure pattern)
 
-  It outputs a **LONG / SHORT / WAIT** call with entry, stop, target and
-  reward:risk, and **only green-lights a trade inside your NY Open killzone**
-  (default **06:00–09:00 ET**, DST-aware, adjustable) when reward:risk ≥ 1:1 —
-  JadeCap targets ~2R+. The swept 1H level, PDH/PDL and entry/stop/target are
-  drawn on the chart.
+  A trade is only green-lit when a clear majority agree **and** you're inside your
+  NY Open window (default **06:00–09:00 ET**, DST-aware, adjustable). Confidence is
+  shown as the vote count (e.g. "5/6 agree · STRONG"). VWAP and the entry/stop/
+  target are drawn on the chart. Designed for quick in-and-out intraday scalps.
 - **Auto-refresh** every 30 seconds (toggleable) plus a manual refresh button,
   with a live killzone countdown.
 - **Resilient data** — widening range fallback, multi-proxy chain with

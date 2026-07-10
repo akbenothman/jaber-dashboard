@@ -355,93 +355,141 @@ function nextOpposingSwing(dir, price, sw) {
   return dns[0] ?? null;
 }
 
-// JadeCap Daily-Sweep model: 1H swing-failure sets bias & stop; lower timeframe
-// (the selected chart TF) refines entry via FVG / structure shift; target is the
-// next opposing 1H liquidity; execution gated to the NY Open killzone.
+/* ---------- Indicators for the strategy ensemble ---------- */
+
+function emaLast(values, period) {
+  const k = 2 / (period + 1);
+  let e = values[0];
+  for (let i = 1; i < values.length; i++) e = values[i] * k + e * (1 - k);
+  return e;
+}
+function emaSeries(values, period) {
+  const k = 2 / (period + 1);
+  const out = [values[0]];
+  for (let i = 1; i < values.length; i++) out.push(values[i] * k + out[i - 1] * (1 - k));
+  return out;
+}
+function rsi(values, period = 14) {
+  if (values.length < period + 1) return 50;
+  let gains = 0, losses = 0;
+  for (let i = values.length - period; i < values.length; i++) {
+    const d = values[i] - values[i - 1];
+    if (d >= 0) gains += d; else losses -= d;
+  }
+  if (losses === 0) return 100;
+  return 100 - 100 / (1 + gains / losses);
+}
+function macdHist(values) {
+  if (values.length < 26) return 0;
+  const line = emaSeries(values, 12).map((v, i) => v - emaSeries(values, 26)[i]);
+  const sig = emaSeries(line, 9);
+  return line[line.length - 1] - sig[sig.length - 1];
+}
+// Session VWAP (falls back to last 60 bars pre-session).
+function sessionVWAP(series, session) {
+  let pv = 0, v = 0;
+  for (const c of series) {
+    if (c.t >= session.startToday) { const tp = (c.h + c.l + c.c) / 3, vol = c.v || 1; pv += tp * vol; v += vol; }
+  }
+  if (v === 0) for (const c of series.slice(-60)) { const tp = (c.h + c.l + c.c) / 3, vol = c.v || 1; pv += tp * vol; v += vol; }
+  return v ? pv / v : series[series.length - 1].c;
+}
+// Opening range = first 15 min after session start.
+function openingRange(series, session) {
+  const end = session.startToday + 15 * 60000;
+  let h = -Infinity, l = Infinity, n = 0;
+  for (const c of series) if (c.t >= session.startToday && c.t <= end) { h = Math.max(h, c.h); l = Math.min(l, c.l); n++; }
+  return n ? { h, l } : null;
+}
+
+/* ---------- Strategy ensemble ---------- */
+
+// Six independent intraday strategies, each votes +1 (buy), -1 (sell), or 0.
+// A trade only fires when enough of them agree — fewer, higher-quality signals.
+function strategyVotes(series, context, session) {
+  const closes = series.map((c) => c.c);
+  const price = closes[closes.length - 1];
+  const votes = [];
+
+  // 1. EMA trend (9/21 direction, 50 regime)
+  const e9 = emaLast(closes, 9), e21 = emaLast(closes, 21), e50 = emaLast(closes, 50);
+  votes.push({ name: "EMA trend", v: e9 > e21 && price >= e50 ? 1 : e9 < e21 && price <= e50 ? -1 : 0 });
+
+  // 2. VWAP position
+  const vwap = sessionVWAP(series, session);
+  votes.push({ name: "VWAP", v: price > vwap ? 1 : price < vwap ? -1 : 0, vwap });
+
+  // 3. RSI momentum
+  const r = rsi(closes, 14);
+  votes.push({ name: "RSI", v: r > 55 ? 1 : r < 45 ? -1 : 0 });
+
+  // 4. MACD histogram
+  const h = macdHist(closes);
+  votes.push({ name: "MACD", v: h > 0 ? 1 : h < 0 ? -1 : 0 });
+
+  // 5. Opening-range breakout
+  const or = openingRange(series, session);
+  votes.push({ name: "Opening range", v: or ? (price > or.h ? 1 : price < or.l ? -1 : 0) : 0 });
+
+  // 6. JadeCap 1H swing-failure sweep
+  const sfp = detectSFP(context, swings(context, 1));
+  votes.push({ name: "1H sweep (JadeCap)", v: sfp ? (sfp.dir === "long" ? 1 : -1) : 0, sfp });
+
+  return votes;
+}
+
+// Combine the votes into a single BUY / SELL / WAIT call with a scalp plan.
 function buildICT(series, context, session) {
-  const now = new Date();
-  const last = series[series.length - 1];
-  const price = last.c;
-
-  const daily = dailyLevels(context, now);
-  const hourly = swings(context, 1); // 1H swing points (3-candle fractal)
-  const sfp = detectSFP(context, hourly);
-  const dir = sfp ? sfp.dir : null;
-
-  // Lower-timeframe entry refinement (must agree with the 1H bias).
-  const fvgRaw = detectFVG(series);
-  const fvg = fvgRaw && dir && fvgRaw.dir === dir ? fvgRaw : null;
-  const mssRaw = detectMSS(series);
-  const mss = mssRaw && dir && mssRaw.dir === dir ? mssRaw : null;
-
-  const target0 = dir ? nextOpposingSwing(dir, price, hourly) : null;
-  let pd = null;
-  if (dir && sfp && target0 != null) {
-    const eq = (sfp.swing + target0) / 2;
-    pd = dir === "long" ? (price < eq ? "discount" : "premium") : (price > eq ? "premium" : "discount");
-  }
-  const pdGood = pd && ((dir === "long" && pd === "discount") || (dir === "short" && pd === "premium"));
-  const tag = dir === "long" ? "bull" : "bear";
-
-  // Confluence checklist mirrors JadeCap's steps.
-  const confluences = [];
-  if (sfp)
-    confluences.push([tag,
-      `1H swing failure — swept ${dir === "long" ? "a swing low (sell-side)" : "a swing high (buy-side)"} & closed back inside`,
-      fmtP(sfp.swing)]);
-  else confluences.push(["neutral", "Waiting for a 1H swing failure (the daily sweep)", "1H"]);
-
-  if (fvg) confluences.push([tag, `Entry: ${state.tf} fair-value gap in bias direction`, `${fmtP(fvg.bottom)}–${fmtP(fvg.top)}`]);
-  else confluences.push(["neutral", `No aligned ${state.tf} fair-value gap yet`, "—"]);
-
-  if (mss) confluences.push([tag, `${state.tf} structure shift confirms ${dir}`, fmtP(mss.level)]);
-  else confluences.push(["neutral", "No confirming structure shift yet", "—"]);
-
-  if (pd) confluences.push([pdGood ? tag : "neutral", `Price in ${pd}${pdGood ? " — good entry location" : " — wait for better price"}`, pdGood ? "✓" : "…"]);
-  else confluences.push(["neutral", "Premium/discount n/a", "—"]);
-
-  confluences.push([session.status === "open" ? tag : "neutral", session.label, session.status === "open" ? "LIVE" : "—"]);
-
+  const price = series[series.length - 1].c;
+  const votes = strategyVotes(series, context, session);
+  const long = votes.filter((x) => x.v > 0).length;
+  const short = votes.filter((x) => x.v < 0).length;
+  const net = long - short;
+  const agree = Math.max(long, short);
+  const total = votes.length;
   const inKz = session.status === "open";
-  let verdict = "wait", text, plan = null;
 
-  if (!dir) {
-    text = `No confirmed 1H swing failure yet. JadeCap's Daily Sweep needs price to raid an hourly swing high/low and close back inside before there's a bias. ${inKz ? "You're in your killzone — watch the 1H for a sweep." : session.label + "."}`;
-  } else {
-    const buf = avgRange(series) * 0.5;
-    const entry = fvg ? (fvg.top + fvg.bottom) / 2 : price;
-    const stop = dir === "long" ? sfp.wick - buf : sfp.wick + buf;
+  // Need a clear majority (net ≥ 3) to take a trade.
+  const dir = net >= 3 ? "long" : net <= -3 ? "short" : null;
+  const names = dir ? votes.filter((x) => (dir === "long" ? x.v > 0 : x.v < 0)).map((x) => x.name) : [];
+  const confidence = agree >= 6 ? "VERY STRONG" : agree >= 5 ? "STRONG" : agree >= 4 ? "MODERATE" : "BUILDING";
+
+  // Tight scalp plan: ATR-based stop, quick 1.5R target (get in, get out).
+  let plan = null;
+  const atr = avgRange(series);
+  if (dir) {
+    const entry = price;
+    const stop = dir === "long" ? entry - atr * 1.2 : entry + atr * 1.2;
     const risk = Math.abs(entry - stop);
-    let target = target0 != null ? target0 : dir === "long" ? entry + risk * 2 : entry - risk * 2;
-    if (dir === "long" && target <= entry) target = entry + risk * 2;
-    if (dir === "short" && target >= entry) target = entry - risk * 2;
-    const rr = risk > 0 ? Math.abs(target - entry) / risk : 0;
-    plan = { dir, entry, stop, target, rr };
-    const name = dir === "long" ? "LONG" : "SHORT";
-
-    if (!inKz) {
-      text = `${name} daily-sweep bias is set — the 1H swept ${dir === "long" ? "sell-side and reversed up" : "buy-side and reversed down"}. But it's outside your NY Open window (${session.label}). Per your plan, execute 6–9 AM ET. Levels staged below.`;
-    } else if (!fvg && !mss) {
-      text = `${name} bias set from the 1H sweep and you're in the killzone — now wait for a lower-TF trigger (a ${state.tf} fair-value gap or structure shift) before entering.`;
-    } else if (rr < 1) {
-      text = `${name} setup is valid but reward:risk to the next 1H liquidity is only ${rr.toFixed(2)}:1. JadeCap targets ~2R+ — skip, or wait for a deeper ${dir === "long" ? "discount" : "premium"} entry.`;
-    } else {
-      verdict = dir;
-      text = `${name} — JadeCap Daily Sweep is LIVE: 1H swept ${dir === "long" ? "a swing low" : "a swing high"} and closed back inside, you're in the killzone, and ${state.tf} offers ${fvg ? "an FVG" : "a structure-shift"} entry. Enter ${fvg ? "at the FVG" : "here"}, stop beyond the swept wick, target the next 1H liquidity (~${rr.toFixed(1)}R). Probability, not a guarantee — manage risk.`;
-    }
+    const target = dir === "long" ? entry + risk * 1.5 : entry - risk * 1.5;
+    plan = { dir, entry, stop, target, rr: 1.5 };
   }
 
+  let verdict = "wait", action, text;
+  if (!dir) {
+    verdict = "wait";
+    action = "WAIT — no clear edge";
+    text = `Only ${agree}/${total} strategies agree — not enough confluence. Stay flat and let a cleaner setup form.${inKz ? "" : " " + session.label + "."}`;
+  } else if (!inKz) {
+    verdict = "wait";
+    action = `WAIT — ${dir === "long" ? "BUY" : "SELL"} setup brewing, outside your window`;
+    text = `${agree}/${total} strategies favor ${dir === "long" ? "a long" : "a short"} (${confidence}), but ${session.label}. Take it in your 6–9 AM ET window.`;
+  } else {
+    verdict = dir;
+    action = `${dir === "long" ? "BUY / LONG" : "SELL / SHORT"} now @ ${fmtP(price)}`;
+    text = `${confidence} — ${agree}/${total} strategies agree (${names.join(", ")}). Scalp it: stop ${fmtP(plan.stop)}, target ${fmtP(plan.target)} (~1.5R). Get in, take the move, get out.`;
+  }
+
+  const vwapLevel = votes.find((x) => x.vwap != null);
   const chartLevels = [];
-  if (sfp) chartLevels.push({ price: sfp.swing, color: "#f59e0b", title: "1H Sweep", dashed: true });
-  if (daily.pdh != null) chartLevels.push({ price: daily.pdh, color: "#8a97ab", title: "PDH", dashed: true });
-  if (daily.pdl != null) chartLevels.push({ price: daily.pdl, color: "#8a97ab", title: "PDL", dashed: true });
+  if (vwapLevel) chartLevels.push({ price: vwapLevel.vwap, color: "#8a97ab", title: "VWAP", dashed: true });
   if (plan) {
     chartLevels.push({ price: plan.entry, color: "#4f8cff", title: "Entry" });
     chartLevels.push({ price: plan.stop, color: "#ef4444", title: "Stop" });
     chartLevels.push({ price: plan.target, color: "#22c55e", title: "Target" });
   }
 
-  return { verdict, text, confluences, plan, chartLevels, session };
+  return { verdict, action, text, plan, chartLevels, session, confidence, agree, total, names };
 }
 
 /* ---------- Rendering ---------- */
@@ -554,20 +602,24 @@ function renderSessionBar(session) {
   $("sessionText").textContent = session.label;
 }
 
-function renderTradeAssistant(ict) {
-  const labels = { long: "LONG ▲", short: "SHORT ▼", wait: "WAIT" };
+function renderTradeAssistant(sig) {
+  const labels = { long: "BUY ▲", short: "SELL ▼", wait: "WAIT" };
   const v = $("verdict");
-  v.textContent = labels[ict.verdict] || ict.verdict.toUpperCase();
-  v.className = "verdict " + ict.verdict;
+  v.textContent = labels[sig.verdict] || "WAIT";
+  v.className = "verdict " + sig.verdict;
 
-  renderSessionBar(ict.session);
-  $("summaryText").textContent = ict.text;
+  renderSessionBar(sig.session);
+
+  const al = $("actionLine");
+  al.textContent = sig.action;
+  al.className = "action-line " + sig.verdict;
+
+  $("summaryText").textContent = sig.text;
 
   const pg = $("planGrid");
-  if (ict.plan) {
-    const p = ict.plan;
+  if (sig.plan) {
+    const p = sig.plan;
     const cells = [
-      ["Direction", p.dir === "long" ? "LONG ▲" : "SHORT ▼", ""],
       ["Entry", fmtP(p.entry), "entry"],
       ["Stop loss", fmtP(p.stop), "stop"],
       ["Target", fmtP(p.target), "target"],
@@ -579,10 +631,6 @@ function renderTradeAssistant(ict) {
   } else {
     pg.innerHTML = "";
   }
-
-  $("signalList").innerHTML = ict.confluences
-    .map(([tag, desc, val]) => `<li><span class="tag ${tag}">${tag}</span><span>${desc}</span><span class="desc">${val}</span></li>`)
-    .join("");
 }
 
 /* ---------- Orchestration ---------- */

@@ -193,6 +193,13 @@ main { max-width: 1000px; margin: 0 auto; padding: 24px; }
 .plan.target .value { color: var(--green); }
 .conf-title { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.8px; margin: 18px 0 10px; }
 
+/* Big action line — the one thing you read */
+.action-line { font-size: 24px; font-weight: 800; letter-spacing: -0.3px; margin: 16px 0 4px; }
+.action-line.long { color: var(--green); }
+.action-line.short { color: var(--red); }
+.action-line.wait { color: var(--amber); }
+@media (max-width: 720px) { .action-line { font-size: 20px; } }
+
 footer { text-align: center; color: var(--muted); font-size: 11px; padding: 24px; }
 
 @media (max-width: 720px) {
