@@ -523,7 +523,7 @@ function buildICT(series, context, session) {
     chartLevels.push({ price: plan.target, color: "#22c55e", title: "Target" });
   }
 
-  return { verdict, action, text, plan, chartLevels, session, confidence, agree, total, names };
+  return { verdict, action, text, plan, chartLevels, session, confidence, agree, total, names, net, votes, price };
 }
 
 /* ---------- Rendering ---------- */
@@ -882,6 +882,7 @@ async function load() {
     renderPrice(series, result.meta, result);
     const ict = buildICT(series, context, sessionInfo());
     renderTradeAssistant(ict);
+    renderShalView(ict, series, result); // before the chart: must not depend on the chart lib
     renderChart(series, ict);
     maybeAlert(ict);
 
@@ -899,6 +900,309 @@ function setAuto(on) {
   clearInterval(state.autoTimer);
   if (on) state.autoTimer = setInterval(load, 30000);
 }
+
+/* ---------- Shal View: neural orb signal flow ---------- */
+
+// The orb rides a SELL ⟷ WAIT ⟷ BUY spectrum. Its target position comes from
+// the SAME ensemble net vote the Trade Signal uses (net −6…+6 → 0…1), so the
+// bar drifting right = a BUY brewing, left = a SELL brewing, centered = WAIT.
+const shal = {
+  active: false,
+  raf: null,
+  canvas: null, ctx: null, w: 0, h: 0, dpr: 1,
+  pos: 0.5, vel: 0, target: 0.5,
+  sig: null,
+  nodes: [], links: [],
+  trail: [],
+};
+
+const SHAL_MARGIN = 34; // px inset of the track from the canvas edges
+
+// Blend red → amber → green across the bar (matches the app's status colors).
+function shalZoneColor(p) {
+  const R = [239, 68, 68], A = [245, 158, 11], G = [34, 197, 94];
+  const mix = (a, b, t) => a.map((v, i) => Math.round(v + (b[i] - v) * t));
+  return p < 0.5 ? mix(R, A, p * 2) : mix(A, G, (p - 0.5) * 2);
+}
+const rgba = (c, a) => `rgba(${c[0]},${c[1]},${c[2]},${a})`;
+
+// Scatter a blockdag-style node mesh around the track and link neighbors.
+function shalBuildDag() {
+  const { w, h } = shal;
+  const nodes = [];
+  const N = Math.max(14, Math.min(30, Math.round(w / 34)));
+  for (let i = 0; i < N; i++) {
+    const above = Math.random() < 0.5;
+    nodes.push({
+      x: SHAL_MARGIN + Math.random() * (w - 2 * SHAL_MARGIN),
+      y: h / 2 + (above ? -1 : 1) * (22 + Math.random() * (h / 2 - 32)),
+      phase: Math.random() * Math.PI * 2,
+      grey: Math.random() < 0.35, // some grey nodes in the blue mesh
+      size: 1.5 + Math.random() * 1.8,
+    });
+  }
+  const links = [];
+  for (let i = 0; i < nodes.length; i++) {
+    const near = nodes
+      .map((n, j) => ({ j, d: Math.hypot(n.x - nodes[i].x, n.y - nodes[i].y) }))
+      .filter((o) => o.j !== i)
+      .sort((a, b) => a.d - b.d)
+      .slice(0, 2);
+    for (const o of near) if (!links.some((l) => (l.a === o.j && l.b === i))) links.push({ a: i, b: o.j });
+  }
+  shal.nodes = nodes;
+  shal.links = links;
+}
+
+function shalResize() {
+  const c = shal.canvas;
+  if (!c) return;
+  const rect = c.getBoundingClientRect();
+  if (!rect.width || !rect.height) return;
+  shal.dpr = window.devicePixelRatio || 1;
+  shal.w = rect.width;
+  shal.h = rect.height;
+  c.width = Math.round(rect.width * shal.dpr);
+  c.height = Math.round(rect.height * shal.dpr);
+  shalBuildDag();
+}
+
+// Drifted node position (the mesh breathes slowly).
+function shalNodePos(n, t) {
+  return {
+    x: n.x + Math.sin(t * 0.00042 + n.phase) * 7,
+    y: n.y + Math.cos(t * 0.00035 + n.phase * 1.7) * 5,
+  };
+}
+
+function shalFrame(ts) {
+  if (!shal.active) { shal.raf = null; return; }
+  const { ctx, w, h, dpr } = shal;
+  if (!ctx || !w) { shal.raf = requestAnimationFrame(shalFrame); return; }
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, w, h);
+  const t = ts;
+
+  // Spring the orb toward the ensemble target; wander a little when undecided.
+  shal.vel += (shal.target - shal.pos) * 0.0032;
+  shal.vel *= 0.93;
+  shal.pos += shal.vel;
+  const uncertainty = 1 - Math.min(1, Math.abs(shal.target - 0.5) * 2); // 1 at WAIT
+  const drawPos = Math.min(1, Math.max(0, shal.pos + Math.sin(t * 0.0006) * 0.018 * (0.4 + uncertainty)));
+
+  const trackY = h / 2;
+  const x0 = SHAL_MARGIN, x1 = w - SHAL_MARGIN;
+  const orbX = x0 + drawPos * (x1 - x0);
+  const orbY = trackY + Math.sin(t * 0.0011) * 3.5;
+  const col = shalZoneColor(drawPos);
+
+  // --- blockdag mesh (background) ---
+  for (const l of shal.links) {
+    const a = shalNodePos(shal.nodes[l.a], t), b = shalNodePos(shal.nodes[l.b], t);
+    const pulse = 0.5 + 0.5 * Math.sin(t * 0.0009 + l.a);
+    ctx.strokeStyle = `rgba(79,140,255,${0.04 + pulse * 0.04})`;
+    ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+  }
+  for (const n of shal.nodes) {
+    const p = shalNodePos(n, t);
+    const pulse = 0.5 + 0.5 * Math.sin(t * 0.0013 + n.phase);
+    ctx.fillStyle = n.grey
+      ? `rgba(138,151,171,${0.10 + pulse * 0.14})`
+      : `rgba(79,140,255,${0.12 + pulse * 0.18})`;
+    ctx.fillRect(p.x - n.size / 2, p.y - n.size / 2, n.size, n.size); // square = pixel/dag feel
+  }
+
+  // --- neural tendrils: orb links itself to the 3 nearest nodes ---
+  const near = shal.nodes
+    .map((n) => ({ n, d: Math.hypot(n.x - orbX, n.y - orbY) }))
+    .sort((a, b) => a.d - b.d)
+    .slice(0, 3);
+  for (let i = 0; i < near.length; i++) {
+    const p = shalNodePos(near[i].n, t);
+    const a = 0.10 + 0.08 * Math.sin(t * 0.002 + i * 2.1);
+    ctx.strokeStyle = rgba(col, Math.max(0.03, a));
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(orbX, orbY);
+    ctx.quadraticCurveTo((orbX + p.x) / 2 + Math.sin(t * 0.0015 + i) * 14, (orbY + p.y) / 2, p.x, p.y);
+    ctx.stroke();
+  }
+
+  // --- the glass track ---
+  const th = 16;
+  const grad = ctx.createLinearGradient(x0, 0, x1, 0);
+  grad.addColorStop(0, "rgba(239,68,68,0.13)");
+  grad.addColorStop(0.5, "rgba(245,158,11,0.11)");
+  grad.addColorStop(1, "rgba(34,197,94,0.13)");
+  ctx.beginPath();
+  ctx.roundRect(x0, trackY - th / 2, x1 - x0, th, th / 2);
+  ctx.fillStyle = grad;
+  ctx.fill();
+  ctx.strokeStyle = "rgba(255,255,255,0.09)";
+  ctx.lineWidth = 1;
+  ctx.stroke();
+  // glass highlight along the top edge
+  ctx.beginPath();
+  ctx.moveTo(x0 + 10, trackY - th / 2 + 3);
+  ctx.lineTo(x1 - 10, trackY - th / 2 + 3);
+  ctx.strokeStyle = "rgba(255,255,255,0.07)";
+  ctx.stroke();
+  // center (WAIT) tick
+  ctx.fillStyle = "rgba(245,158,11,0.35)";
+  ctx.fillRect((x0 + x1) / 2 - 0.5, trackY - th / 2 - 5, 1, th + 10);
+
+  // --- energy fill from center toward the orb (the "lean") ---
+  const cx = (x0 + x1) / 2;
+  if (Math.abs(orbX - cx) > 4) {
+    const eg = ctx.createLinearGradient(cx, 0, orbX, 0);
+    eg.addColorStop(0, rgba(col, 0.02));
+    eg.addColorStop(1, rgba(col, 0.22));
+    ctx.beginPath();
+    ctx.roundRect(Math.min(cx, orbX), trackY - th / 2 + 3, Math.abs(orbX - cx), th - 6, (th - 6) / 2);
+    ctx.fillStyle = eg;
+    ctx.fill();
+  }
+
+  // --- motion trail ---
+  shal.trail.push(orbX);
+  if (shal.trail.length > 34) shal.trail.shift();
+  for (let i = 0; i < shal.trail.length - 1; i++) {
+    const a = (i / shal.trail.length) * 0.10;
+    ctx.beginPath();
+    ctx.arc(shal.trail[i], trackY, 2 + (i / shal.trail.length) * 4, 0, Math.PI * 2);
+    ctx.fillStyle = rgba(col, a);
+    ctx.fill();
+  }
+
+  // --- the orb ---
+  const r = 15 + Math.sin(t * 0.002) * 1.6;
+  let g = ctx.createRadialGradient(orbX, orbY, 0, orbX, orbY, r * 3.6); // aura
+  g.addColorStop(0, rgba(col, 0.28));
+  g.addColorStop(0.4, rgba(col, 0.10));
+  g.addColorStop(1, rgba(col, 0));
+  ctx.fillStyle = g;
+  ctx.beginPath(); ctx.arc(orbX, orbY, r * 3.6, 0, Math.PI * 2); ctx.fill();
+
+  g = ctx.createRadialGradient(orbX, orbY, 0, orbX, orbY, r * 1.7); // glass shell
+  g.addColorStop(0, "rgba(255,255,255,0.10)");
+  g.addColorStop(0.75, "rgba(255,255,255,0.05)");
+  g.addColorStop(1, "rgba(255,255,255,0)");
+  ctx.fillStyle = g;
+  ctx.beginPath(); ctx.arc(orbX, orbY, r * 1.7, 0, Math.PI * 2); ctx.fill();
+
+  g = ctx.createRadialGradient(orbX - r * 0.25, orbY - r * 0.3, 0, orbX, orbY, r); // core
+  g.addColorStop(0, "rgba(255,255,255,0.95)");
+  g.addColorStop(0.35, rgba(col, 0.85));
+  g.addColorStop(0.8, rgba(col, 0.35));
+  g.addColorStop(1, rgba(col, 0));
+  ctx.fillStyle = g;
+  ctx.beginPath(); ctx.arc(orbX, orbY, r, 0, Math.PI * 2); ctx.fill();
+
+  // glass specular highlight
+  ctx.beginPath();
+  ctx.ellipse(orbX - r * 0.32, orbY - r * 0.42, r * 0.3, r * 0.16, -0.6, 0, Math.PI * 2);
+  ctx.fillStyle = "rgba(255,255,255,0.5)";
+  ctx.fill();
+
+  // orbiting particles (blue/grey motes circling the orb)
+  for (let i = 0; i < 5; i++) {
+    const ang = t * 0.0014 + (i * Math.PI * 2) / 5;
+    const px = orbX + Math.cos(ang) * r * 2.1;
+    const py = orbY + Math.sin(ang) * r * 0.8;
+    const behind = Math.sin(ang) < 0;
+    ctx.beginPath();
+    ctx.arc(px, py, 1.6, 0, Math.PI * 2);
+    ctx.fillStyle = i % 3 === 2
+      ? `rgba(138,151,171,${behind ? 0.25 : 0.55})`
+      : `rgba(140,180,255,${behind ? 0.28 : 0.6})`;
+    ctx.fill();
+  }
+
+  shal.raf = requestAnimationFrame(shalFrame);
+}
+
+function setShalActive(on) {
+  shal.active = on;
+  if (on) {
+    shalResize(); // canvas had zero size while hidden
+    if (!shal.raf) shal.raf = requestAnimationFrame(shalFrame);
+  }
+}
+
+// Refresh the Shal View from the same signal object the Trade Signal renders.
+function renderShalView(sig, series, result) {
+  shal.sig = sig;
+  const net = sig.net ?? 0;
+  shal.target = Math.min(1, Math.max(0, 0.5 + (net / 6) * 0.5));
+
+  const labels = { long: "BUY ▲", short: "SELL ▼", wait: "WAIT" };
+  const v = $("shalVerdict");
+  v.textContent = labels[sig.verdict] || "WAIT";
+  v.className = "verdict " + sig.verdict;
+
+  const al = $("shalAction");
+  al.textContent = sig.action;
+  al.className = "action-line " + sig.verdict;
+
+  const lean = net > 0 ? "buy side" : net < 0 ? "sell side" : "dead center";
+  $("shalMeta").innerHTML =
+    `Net vote <b>${net > 0 ? "+" : ""}${net}</b> of ±${sig.total} · orb leaning <b>${lean}</b> · ` +
+    `<b>${sig.agree}/${sig.total}</b> strategies aligned · confidence <b>${sig.confidence}</b>`;
+
+  // Consensus Matrix
+  $("shalAlign").textContent = `${sig.agree}/${sig.total} aligned`;
+  $("shalMatrix").innerHTML = (sig.votes || [])
+    .map((s) => {
+      const cls = s.v > 0 ? "bull" : s.v < 0 ? "bear" : "flat";
+      const word = s.v > 0 ? "LONG" : s.v < 0 ? "SHORT" : "FLAT";
+      return `<div class="mx ${cls}"><span class="mx-dot"></span><span class="mx-name">${s.name}</span><span class="mx-vote">${word}</span></div>`;
+    })
+    .join("");
+
+  // Signal Telemetry
+  $("shalSession").textContent =
+    sig.session.status === "open" ? "KILLZONE LIVE" : sig.session.status === "soon" ? "KILLZONE SOON" : "OFF SESSION";
+  const prevClose = result?.meta?.chartPreviousClose ?? series[0].c;
+  const chg = sig.price - prevClose;
+  const chgPct = (chg / prevClose) * 100;
+  const p = sig.plan;
+  const tiles = [
+    ["Instrument", SYMBOLS[state.symbol].name, ""],
+    ["Price", fmtP(sig.price), "blue"],
+    ["Change", `${chg >= 0 ? "+" : ""}${chgPct.toFixed(2)}%`, chg >= 0 ? "up" : "down"],
+    ["Confidence", sig.confidence, sig.verdict === "wait" ? "warn" : sig.verdict === "long" ? "up" : "down"],
+    ["Entry", p ? fmtP(p.entry) : "—", "blue"],
+    ["Stop", p ? fmtP(p.stop) : "—", p ? "down" : ""],
+    ["Target", p ? fmtP(p.target) : "—", p ? "up" : ""],
+    ["Reward : Risk", p ? `${p.rr.toFixed(2)} : 1` : "—", ""],
+  ];
+  $("shalTele").innerHTML = tiles
+    .map(([l, val, cls]) => `<div class="tele"><div class="label">${l}</div><div class="value ${cls}">${val}</div></div>`)
+    .join("");
+}
+
+// Sidebar navigation between views.
+document.querySelectorAll(".side-nav .nav-btn").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll(".side-nav .nav-btn").forEach((b) => b.classList.remove("active"));
+    btn.classList.add("active");
+    const view = btn.dataset.view;
+    document.querySelectorAll(".view").forEach((el) => el.classList.toggle("active", el.id === "view-" + view));
+    setShalActive(view === "shal");
+  });
+});
+
+shal.canvas = $("orbCanvas");
+if (shal.canvas) {
+  shal.ctx = shal.canvas.getContext("2d");
+  window.addEventListener("resize", () => { if (shal.active) shalResize(); });
+}
+// Don't burn frames in a background tab.
+document.addEventListener("visibilitychange", () => {
+  const shalTabOn = document.querySelector('.nav-btn[data-view="shal"].active');
+  setShalActive(!document.hidden && !!shalTabOn);
+});
 
 /* ---------- Wiring ---------- */
 

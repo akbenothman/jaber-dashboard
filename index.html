@@ -10,121 +10,191 @@
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📈</text></svg>" />
 </head>
 <body>
-  <header class="topbar">
-    <div class="brand">
-      <span class="logo">📈</span>
-      <div>
-        <h1>Jib Jab Dashboard</h1>
-        <p class="tagline">Live futures &middot; Gold &amp; Nasdaq-100</p>
+  <div class="shell">
+    <!-- Sidebar -->
+    <aside class="sidebar">
+      <div class="side-brand">
+        <span class="logo">📈</span>
+        <span class="side-title">Jib Jab</span>
       </div>
+      <nav class="side-nav">
+        <button class="nav-btn active" data-view="dashboard">
+          <span class="nav-ico">📊</span><span>Dashboard</span>
+        </button>
+        <button class="nav-btn shal" data-view="shal">
+          <span class="nav-orb"></span><span>Shal View</span>
+        </button>
+      </nav>
+      <div class="side-foot">neural link · live</div>
+    </aside>
+
+    <div class="content">
+      <header class="topbar">
+        <div class="brand">
+          <span class="logo">📈</span>
+          <div>
+            <h1>Jib Jab Dashboard</h1>
+            <p class="tagline">Live futures &middot; Gold &amp; Nasdaq-100</p>
+          </div>
+        </div>
+        <div class="status">
+          <span id="marketState" class="pill pill-muted">—</span>
+          <span id="lastUpdate" class="update">Loading…</span>
+          <button id="refreshBtn" class="btn" title="Refresh now">↻</button>
+        </div>
+      </header>
+
+      <main>
+        <!-- ============ Dashboard view (original, untouched design) ============ -->
+        <div id="view-dashboard" class="view active">
+          <!-- Controls -->
+          <section class="controls">
+            <div class="tabs" id="symbolTabs">
+              <button class="tab active" data-symbol="GC=F">🥇 Gold</button>
+              <button class="tab" data-symbol="NQ=F">💻 Nasdaq 100</button>
+            </div>
+
+            <div class="ctl">
+              <span class="ctl-label">Timeframe</span>
+              <div class="range-group" id="tfGroup" role="group" aria-label="Chart timeframe">
+                <button class="chip active" data-tf="1m">1m</button>
+                <button class="chip" data-tf="5m">5m</button>
+                <button class="chip" data-tf="15m">15m</button>
+                <button class="chip" data-tf="1h">1h</button>
+                <button class="chip" data-tf="1d">1D</button>
+              </div>
+            </div>
+
+            <div class="ctl">
+              <span class="ctl-label">NY Open killzone (ET)</span>
+              <div class="session-inputs">
+                <input type="time" id="sessStart" value="06:00" />
+                <span class="arrow">→</span>
+                <input type="time" id="sessEnd" value="09:00" />
+              </div>
+            </div>
+
+            <label class="auto">
+              <input type="checkbox" id="autoRefresh" checked />
+              Auto-refresh (30s)
+            </label>
+
+            <label class="auto">
+              <input type="checkbox" id="alertToggle" />
+              🔔 Alert me
+            </label>
+
+            <button id="btBtn" class="btn-wide" title="Backtest this exact signal over recent history">⏱ Backtest</button>
+          </section>
+
+          <!-- Trade Signal (hero) -->
+          <section class="summary-card hero" id="tradeCard">
+            <div class="summary-head">
+              <h2>Trade Signal</h2>
+              <span class="verdict" id="verdict">—</span>
+            </div>
+
+            <div class="session-bar" id="sessionBar">
+              <span class="dot"></span><span id="sessionText">Checking session…</span>
+            </div>
+
+            <p class="action-line wait" id="actionLine">Analyzing…</p>
+            <div class="plan-grid" id="planGrid"></div>
+            <p class="summary-text" id="summaryText"></p>
+
+            <p class="disclaimer">
+              ⚠️ Educational multi-strategy signal (EMA trend, VWAP, RSI, MACD, opening-range
+              breakout, and JadeCap's 1H liquidity sweep) — <strong>not financial advice</strong>,
+              not affiliated with JadeCap. It only calls BUY/SELL when several strategies agree
+              during your NY Open window, with a tight ~1.5R scalp plan. These are probabilities,
+              not certainties — size small and manage risk.
+            </p>
+          </section>
+
+          <!-- Price header -->
+          <section class="price-card" id="priceCard">
+            <div class="price-main">
+              <span class="sym-name" id="symName">Gold Futures</span>
+              <span class="sym-code" id="symCode">GC=F</span>
+              <div class="price-row">
+                <span class="price" id="price">—</span>
+                <span class="change" id="change">—</span>
+              </div>
+            </div>
+            <div class="stat-grid" id="statGrid"></div>
+          </section>
+
+          <!-- Chart -->
+          <section class="chart-card">
+            <div class="chart-hint">🔍 Scroll / pinch to zoom · drag to pan · double-click to reset</div>
+            <div id="chart" class="chart-box"></div>
+            <div class="loading" id="chartLoading">Fetching live data…</div>
+          </section>
+
+          <!-- Backtest results -->
+          <section class="summary-card" id="backtestCard" hidden>
+            <div class="summary-head">
+              <h2>Backtest</h2>
+              <span class="bt-meta" id="btMeta"></span>
+            </div>
+            <div class="stat-grid bt-stats" id="btStats"></div>
+            <div class="bt-curve" id="btCurve"></div>
+            <p class="disclaimer" id="btNote"></p>
+          </section>
+        </div>
+
+        <!-- ============ Shal View (neural signal flow) ============ -->
+        <div id="view-shal" class="view">
+          <!-- Hero: the neural orb signal bar -->
+          <section class="shal-hero">
+            <div class="shal-head">
+              <div>
+                <h2>Neural Signal Flow</h2>
+                <p class="shal-sub">The ensemble's live lean — the orb drifts toward what's brewing</p>
+              </div>
+              <span class="verdict" id="shalVerdict">—</span>
+            </div>
+
+            <div class="orb-stage">
+              <canvas id="orbCanvas" aria-label="Live BUY / WAIT / SELL signal orb"></canvas>
+              <div class="orb-zones">
+                <span class="z-sell">◂ SELL</span>
+                <span class="z-wait">WAIT</span>
+                <span class="z-buy">BUY ▸</span>
+              </div>
+            </div>
+
+            <p class="action-line wait" id="shalAction">Analyzing…</p>
+            <p class="shal-meta" id="shalMeta">Waiting for first data pulse…</p>
+          </section>
+
+          <!-- Consensus Matrix -->
+          <section class="shal-card">
+            <div class="shal-card-head">
+              <span class="pulse-dot"></span>
+              <h3>Consensus Matrix</h3>
+              <span class="shal-tag" id="shalAlign">—</span>
+            </div>
+            <div class="matrix-grid" id="shalMatrix"></div>
+          </section>
+
+          <!-- Signal Telemetry -->
+          <section class="shal-card">
+            <div class="shal-card-head">
+              <span class="pulse-dot"></span>
+              <h3>Signal Telemetry</h3>
+              <span class="shal-tag" id="shalSession">—</span>
+            </div>
+            <div class="tele-grid" id="shalTele"></div>
+          </section>
+        </div>
+      </main>
+
+      <footer>
+        <span>Data via Yahoo Finance (delayed/near-real-time). Built for free static hosting.</span>
+      </footer>
     </div>
-    <div class="status">
-      <span id="marketState" class="pill pill-muted">—</span>
-      <span id="lastUpdate" class="update">Loading…</span>
-      <button id="refreshBtn" class="btn" title="Refresh now">↻</button>
-    </div>
-  </header>
-
-  <main>
-    <!-- Controls -->
-    <section class="controls">
-      <div class="tabs" id="symbolTabs">
-        <button class="tab active" data-symbol="GC=F">🥇 Gold</button>
-        <button class="tab" data-symbol="NQ=F">💻 Nasdaq 100</button>
-      </div>
-
-      <div class="ctl">
-        <span class="ctl-label">Timeframe</span>
-        <div class="range-group" id="tfGroup" role="group" aria-label="Chart timeframe">
-          <button class="chip active" data-tf="1m">1m</button>
-          <button class="chip" data-tf="5m">5m</button>
-          <button class="chip" data-tf="15m">15m</button>
-          <button class="chip" data-tf="1h">1h</button>
-          <button class="chip" data-tf="1d">1D</button>
-        </div>
-      </div>
-
-      <div class="ctl">
-        <span class="ctl-label">NY Open killzone (ET)</span>
-        <div class="session-inputs">
-          <input type="time" id="sessStart" value="06:00" />
-          <span class="arrow">→</span>
-          <input type="time" id="sessEnd" value="09:00" />
-        </div>
-      </div>
-
-      <label class="auto">
-        <input type="checkbox" id="autoRefresh" checked />
-        Auto-refresh (30s)
-      </label>
-
-      <label class="auto">
-        <input type="checkbox" id="alertToggle" />
-        🔔 Alert me
-      </label>
-
-      <button id="btBtn" class="btn-wide" title="Backtest this exact signal over recent history">⏱ Backtest</button>
-    </section>
-
-    <!-- Trade Signal (hero) -->
-    <section class="summary-card hero" id="tradeCard">
-      <div class="summary-head">
-        <h2>Trade Signal</h2>
-        <span class="verdict" id="verdict">—</span>
-      </div>
-
-      <div class="session-bar" id="sessionBar">
-        <span class="dot"></span><span id="sessionText">Checking session…</span>
-      </div>
-
-      <p class="action-line wait" id="actionLine">Analyzing…</p>
-      <div class="plan-grid" id="planGrid"></div>
-      <p class="summary-text" id="summaryText"></p>
-
-      <p class="disclaimer">
-        ⚠️ Educational multi-strategy signal (EMA trend, VWAP, RSI, MACD, opening-range
-        breakout, and JadeCap's 1H liquidity sweep) — <strong>not financial advice</strong>,
-        not affiliated with JadeCap. It only calls BUY/SELL when several strategies agree
-        during your NY Open window, with a tight ~1.5R scalp plan. These are probabilities,
-        not certainties — size small and manage risk.
-      </p>
-    </section>
-
-    <!-- Price header -->
-    <section class="price-card" id="priceCard">
-      <div class="price-main">
-        <span class="sym-name" id="symName">Gold Futures</span>
-        <span class="sym-code" id="symCode">GC=F</span>
-        <div class="price-row">
-          <span class="price" id="price">—</span>
-          <span class="change" id="change">—</span>
-        </div>
-      </div>
-      <div class="stat-grid" id="statGrid"></div>
-    </section>
-
-    <!-- Chart -->
-    <section class="chart-card">
-      <div class="chart-hint">🔍 Scroll / pinch to zoom · drag to pan · double-click to reset</div>
-      <div id="chart" class="chart-box"></div>
-      <div class="loading" id="chartLoading">Fetching live data…</div>
-    </section>
-
-    <!-- Backtest results -->
-    <section class="summary-card" id="backtestCard" hidden>
-      <div class="summary-head">
-        <h2>Backtest</h2>
-        <span class="bt-meta" id="btMeta"></span>
-      </div>
-      <div class="stat-grid bt-stats" id="btStats"></div>
-      <div class="bt-curve" id="btCurve"></div>
-      <p class="disclaimer" id="btNote"></p>
-    </section>
-  </main>
-
-  <footer>
-    <span>Data via Yahoo Finance (delayed/near-real-time). Built for free static hosting.</span>
-  </footer>
+  </div>
 
   <script src="app.js"></script>
 </body>
