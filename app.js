@@ -6,6 +6,7 @@
 const SYMBOLS = {
   "GC=F": { name: "Gold Futures", unit: "$", decimals: 2 },
   "NQ=F": { name: "Nasdaq-100 Futures", unit: "", decimals: 2 },
+  "^NDX": { name: "Nasdaq-100 Index (cash)", unit: "", decimals: 2 },
 };
 
 const HOUR = 3600000;
@@ -26,9 +27,11 @@ const TIMEFRAMES = {
 const state = {
   symbol: "GC=F",
   tf: "1m",
+  nasdaqMode: "futures", // "futures" (NQ=F, what TopStep trades) or "index" (^NDX cash)
   ...TIMEFRAMES["1m"], // spreads interval, baseRange, lookbackMs
   autoTimer: null,
 };
+const nasdaqSymbol = () => (state.nasdaqMode === "index" ? "^NDX" : "NQ=F");
 
 // Yahoo limits how far back each interval can go — used to widen safely.
 const INTERVAL_MAX_DAYS = { "1m": 7, "5m": 60, "15m": 60, "1h": 730, "1d": Infinity };
@@ -541,7 +544,12 @@ function renderPrice(series, meta, result) {
   const up = change >= 0;
 
   $("symName").textContent = info.name;
-  $("symCode").textContent = state.symbol;
+  const exch = result.meta?.exchangeName || "";
+  const delayMin = result.meta?.regularMarketTime
+    ? Math.round(Date.now() / 1000 - result.meta.regularMarketTime) / 60
+    : null;
+  const delayTag = delayMin != null && delayMin >= 1 && delayMin < 60 ? ` · ~${Math.round(delayMin)}m delayed` : "";
+  $("symCode").textContent = `${state.symbol}${exch ? " · " + exch : ""}${delayTag}`;
   $("price").textContent = info.unit + fmt(last, info.decimals);
   const chgEl = $("change");
   chgEl.textContent = `${up ? "▲" : "▼"} ${fmt(Math.abs(change), info.decimals)} (${up ? "+" : ""}${changePct.toFixed(2)}%)`;
@@ -1189,6 +1197,7 @@ document.querySelectorAll(".side-nav .nav-btn").forEach((btn) => {
     btn.classList.add("active");
     const view = btn.dataset.view;
     document.querySelectorAll(".view").forEach((el) => el.classList.toggle("active", el.id === "view-" + view));
+    document.body.classList.toggle("shal-bg", view === "shal"); // artwork bg only in Shal View
     setShalActive(view === "shal");
   });
 });
@@ -1210,9 +1219,25 @@ document.querySelectorAll("#symbolTabs .tab").forEach((btn) => {
   btn.addEventListener("click", () => {
     document.querySelectorAll("#symbolTabs .tab").forEach((b) => b.classList.remove("active"));
     btn.classList.add("active");
-    state.symbol = btn.dataset.symbol;
+    const base = btn.dataset.symbol;
+    state.symbol = base === "NQ=F" ? nasdaqSymbol() : base;
     needsFit = true; // new instrument → refit view
     load();
+  });
+});
+
+// Nasdaq feed toggle: futures (NQ=F, TopStep) ↔ cash index (^NDX).
+document.querySelectorAll("#feedGroup .chip").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll("#feedGroup .chip").forEach((b) => b.classList.remove("active"));
+    btn.classList.add("active");
+    state.nasdaqMode = btn.dataset.feed;
+    if (state.symbol === "NQ=F" || state.symbol === "^NDX") {
+      state.symbol = nasdaqSymbol();
+      contextCache = { key: null, data: null, t: 0 }; // force fresh context for new symbol
+      needsFit = true;
+      load();
+    }
   });
 });
 
