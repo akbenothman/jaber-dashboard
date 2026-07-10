@@ -454,15 +454,26 @@ function votesToDir(votes) {
   return { dir: net >= 3 ? "long" : net <= -3 ? "short" : null, long, short, agree: Math.max(long, short) };
 }
 
-// Combine the votes into a single BUY / SELL / WAIT call with a scalp plan.
+// Combine the votes into a single BUY / SELL / WAIT call with a scalp plan,
+// an explicit confidence stance, and a plain-English reason.
 function buildICT(series, context, session) {
   const price = series[series.length - 1].c;
+  const closes = series.map((c) => c.c);
   const votes = strategyVotes(series, context, session);
   const { dir, agree } = votesToDir(votes);
   const total = votes.length;
   const inKz = session.status === "open";
-  const names = dir ? votes.filter((x) => (dir === "long" ? x.v > 0 : x.v < 0)).map((x) => x.name) : [];
-  const confidence = agree >= 6 ? "VERY STRONG" : agree >= 5 ? "STRONG" : agree >= 4 ? "MODERATE" : "BUILDING";
+
+  // Diagnostics for the "why".
+  const longV = votes.filter((v) => v.v > 0).map((v) => v.name);
+  const shortV = votes.filter((v) => v.v < 0).map((v) => v.name);
+  const flatV = votes.filter((v) => v.v === 0).map((v) => v.name);
+  const net = longV.length - shortV.length;
+  const conflict = longV.length >= 2 && shortV.length >= 2;
+  const emaFlat = Math.abs(emaLast(closes, 9) - emaLast(closes, 21)) / price * 100 < 0.05;
+  const names = dir === "long" ? longV : dir === "short" ? shortV : [];
+  const dissent = dir === "long" ? shortV : dir === "short" ? longV : [];
+  const confidence = agree >= 6 ? "VERY HIGH" : agree >= 5 ? "HIGH" : agree >= 4 ? "MODERATE" : "LOW";
 
   // Tight scalp plan: ATR-based stop, quick 1.5R target (get in, get out).
   let plan = null;
@@ -476,18 +487,31 @@ function buildICT(series, context, session) {
   }
 
   let verdict = "wait", action, text;
-  if (!dir) {
-    verdict = "wait";
-    action = "WAIT — no clear edge";
-    text = `Only ${agree}/${total} strategies agree — not enough confluence. Stay flat and let a cleaner setup form.${inKz ? "" : " " + session.label + "."}`;
-  } else if (!inKz) {
-    verdict = "wait";
-    action = `WAIT — ${dir === "long" ? "BUY" : "SELL"} setup brewing, outside your window`;
-    text = `${agree}/${total} strategies favor ${dir === "long" ? "a long" : "a short"} (${confidence}), but ${session.label}. Take it in your 6–9 AM ET window.`;
-  } else {
+
+  if (dir && inKz) {
+    // Actionable trade.
     verdict = dir;
     action = `${dir === "long" ? "BUY / LONG" : "SELL / SHORT"} now @ ${fmtP(price)}`;
-    text = `${confidence} — ${agree}/${total} strategies agree (${names.join(", ")}). Scalp it: stop ${fmtP(plan.stop)}, target ${fmtP(plan.target)} (~1.5R). Get in, take the move, get out.`;
+    const conf = agree >= 5 ? "✅ Confident" : agree >= 4 ? "✅ Reasonably confident" : "⚠️ Only mildly confident";
+    text = `${conf} (${confidence}) — ${agree}/${total} strategies agree: ${names.join(", ")}${dissent.length ? `; ${dissent.join(", ")} disagree` : "; none against it"}. Scalp it: stop ${fmtP(plan.stop)}, target ${fmtP(plan.target)} (~1.5R). Get in, take the move, get out.`;
+  } else if (session.weekend) {
+    action = "WAIT — market closed";
+    text = "✅ Confident: don't trade. It's the weekend — futures are effectively closed, liquidity is thin and setups are unreliable. Come back for the weekday NY Open.";
+  } else if (dir && !inKz) {
+    action = `WAIT — ${dir === "long" ? "BUY" : "SELL"} brewing, outside your window`;
+    text = `✅ Confident you should wait: it's outside your 6–9 ET killzone (${session.label}). ${agree}/${total} strategies lean ${dir === "long" ? "long" : "short"}, so a trade may set up when your window opens — but these hours are thinner and lower-probability. Sit tight.`;
+  } else if (Math.abs(net) === 2) {
+    // One vote shy of the threshold — genuinely uncertain.
+    const lean = net > 0 ? "BUY" : "SELL";
+    const leanNames = net > 0 ? longV : shortV;
+    action = `WAIT — leaning ${lean}, not confirmed`;
+    text = `⚠️ Not confident yet — this is borderline. ${agree}/${total} lean ${lean} (${leanNames.join(", ")}), but the model needs a clear majority (net ≥ 3) and it's only at net ${Math.abs(net)}. It's tilting ${net > 0 ? "up" : "down"} — wait for one more strategy to line up before risking money.${inKz ? "" : " (Also outside your window.)"}`;
+  } else if (conflict) {
+    action = "WAIT — strategies split (chop)";
+    text = `✅ Confident this is a skip: the strategies are fighting each other — ${longV.join(", ")} say up while ${shortV.join(", ")} say down. A split like that is chop, and chop is a coin-flip. No edge, no trade.`;
+  } else {
+    action = "WAIT — no momentum";
+    text = `✅ Confident this is a skip: only ${agree}/${total} strategies show any direction${emaFlat ? " and price is coiling — the moving averages are flat and hugging VWAP" : ""}. No momentum means no edge. Wait for the market to pick a side.${inKz ? "" : " " + session.label + "."}`;
   }
 
   const vwapLevel = votes.find((x) => x.vwap != null);
