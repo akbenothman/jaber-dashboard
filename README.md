@@ -48,7 +48,15 @@ No backend, no API key, no build step — just static files you can host anywher
   with a live killzone countdown.
 - **Resilient data** — widening range fallback, multi-proxy chain with
   per-request timeouts, and a cached higher-timeframe context feed.
-- Responsive dark UI, works on mobile.
+- **Shal View** — a second tab with a live **neural orb** that drifts along a
+  SELL ⟷ WAIT ⟷ BUY spectrum as the strategy ensemble leans, plus a consensus
+  matrix and signal telemetry, all in a glowing glass UI.
+- **Installable PWA** — a web app manifest + service worker make it
+  install-to-home-screen on iOS/Android/desktop. The app shell is cached
+  (stale-while-revalidate) so it opens instantly and survives flaky
+  connections; **market data is never cached** — quotes always come live.
+- **Mobile-first layout** — app-style bottom tab bar, compact header,
+  collapsible ⚙ Settings panel, and thumb-sized touch targets.
 
 > ⚠️ **Not financial advice.** The assistant reports probabilities from price
 > structure, not certainties. No trading system is "accurate." Trade your own

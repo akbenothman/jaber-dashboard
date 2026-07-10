@@ -2,12 +2,20 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Jib Jab Dashboard</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>JibJab Trading</title>
+  <meta name="description" content="Live Gold & Nasdaq-100 futures with a multi-strategy trade signal and the Shal View neural signal flow." />
+  <meta name="theme-color" content="#0b0e14" />
+  <link rel="manifest" href="manifest.json" />
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="JibJab" />
   <link rel="preconnect" href="https://cdn.jsdelivr.net" />
   <script src="https://cdn.jsdelivr.net/npm/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
   <link rel="stylesheet" href="styles.css" />
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📈</text></svg>" />
+  <link rel="icon" href="icons/icon-192.png" type="image/png" />
 </head>
 <body>
   <div class="shell">
@@ -55,14 +63,6 @@
             </div>
 
             <div class="ctl">
-              <span class="ctl-label">Nasdaq feed</span>
-              <div class="range-group" id="feedGroup" role="group" aria-label="Nasdaq feed">
-                <button class="chip active" data-feed="futures" title="NQ=F — CME E-mini futures, what TopStep trades">Futures</button>
-                <button class="chip" data-feed="index" title="^NDX — cash index (RTH only)">Index</button>
-              </div>
-            </div>
-
-            <div class="ctl">
               <span class="ctl-label">Timeframe</span>
               <div class="range-group" id="tfGroup" role="group" aria-label="Chart timeframe">
                 <button class="chip active" data-tf="1m">1m</button>
@@ -73,24 +73,36 @@
               </div>
             </div>
 
-            <div class="ctl">
-              <span class="ctl-label">NY Open killzone (ET)</span>
-              <div class="session-inputs">
-                <input type="time" id="sessStart" value="06:00" />
-                <span class="arrow">→</span>
-                <input type="time" id="sessEnd" value="09:00" />
+            <!-- Secondary settings: inline on desktop, collapsible on mobile -->
+            <button class="adv-toggle" id="advToggle" aria-expanded="false" aria-controls="advPanel">⚙ Settings</button>
+            <div class="adv" id="advPanel">
+              <div class="ctl">
+                <span class="ctl-label">Nasdaq feed</span>
+                <div class="range-group" id="feedGroup" role="group" aria-label="Nasdaq feed">
+                  <button class="chip active" data-feed="futures" title="NQ=F — CME E-mini futures, what TopStep trades">Futures</button>
+                  <button class="chip" data-feed="index" title="^NDX — cash index (RTH only)">Index</button>
+                </div>
               </div>
+
+              <div class="ctl">
+                <span class="ctl-label">NY Open killzone (ET)</span>
+                <div class="session-inputs">
+                  <input type="time" id="sessStart" value="06:00" />
+                  <span class="arrow">→</span>
+                  <input type="time" id="sessEnd" value="09:00" />
+                </div>
+              </div>
+
+              <label class="auto">
+                <input type="checkbox" id="autoRefresh" checked />
+                Auto-refresh (30s)
+              </label>
+
+              <label class="auto">
+                <input type="checkbox" id="alertToggle" />
+                🔔 Alert me
+              </label>
             </div>
-
-            <label class="auto">
-              <input type="checkbox" id="autoRefresh" checked />
-              Auto-refresh (30s)
-            </label>
-
-            <label class="auto">
-              <input type="checkbox" id="alertToggle" />
-              🔔 Alert me
-            </label>
 
             <button id="btBtn" class="btn-wide" title="Backtest this exact signal over recent history">⏱ Backtest</button>
           </section>

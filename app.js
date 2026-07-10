@@ -1263,8 +1263,23 @@ $("alertToggle").addEventListener("change", (e) => {
 });
 ["sessStart", "sessEnd"].forEach((id) => $(id).addEventListener("change", () => load()));
 
+// Mobile ⚙ Settings toggle (the panel is inline on desktop, collapsed on phones).
+$("advToggle").addEventListener("click", () => {
+  const panel = $("advPanel");
+  const open = panel.classList.toggle("open");
+  $("advToggle").setAttribute("aria-expanded", String(open));
+});
+
 // Live-tick the session countdown every second without refetching data.
 setInterval(() => renderSessionBar(sessionInfo()), 1000);
+
+/* ---------- PWA ---------- */
+
+if ("serviceWorker" in navigator && /^https?:$/.test(location.protocol)) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("sw.js").catch(() => { /* PWA is progressive — app works without it */ });
+  });
+}
 
 // Boot
 load();

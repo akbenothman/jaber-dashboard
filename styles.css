@@ -474,27 +474,93 @@ body.shal-bg {
 .tele .value.warn { color: var(--amber); }
 .tele .value.blue { color: var(--accent); }
 
+/* ================= Secondary settings (inline desktop / collapsible mobile) ================= */
+
+/* Desktop: the panel dissolves into the controls row, toggle hidden. */
+.adv { display: contents; }
+.adv-toggle { display: none; }
+
+/* ================= Touch & PWA niceties ================= */
+
+button, .tab, .chip, .nav-btn { -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
+
+/* ================= Mobile: bottom tab bar + compact layout ================= */
+
 @media (max-width: 900px) {
   .shell { flex-direction: column; }
+
+  /* Sidebar becomes an app-style bottom tab bar */
   .sidebar {
-    width: 100%; height: auto; flex-direction: row; align-items: center;
-    padding: 10px 14px; gap: 12px;
-    border-right: none; border-bottom: 1px solid var(--border);
+    position: fixed; top: auto; bottom: 0; left: 0; right: 0;
+    width: 100%; height: auto;
+    flex-direction: row; align-items: center; gap: 0;
+    padding: 8px 12px calc(8px + env(safe-area-inset-bottom));
+    border-right: none; border-top: 1px solid var(--border);
+    background: rgba(11, 14, 20, 0.92);
+    backdrop-filter: blur(16px);
   }
-  .side-brand { border-bottom: none; padding: 0 6px 0 0; }
-  .side-title { display: none; }
-  .side-nav { flex-direction: row; }
-  .side-foot { display: none; }
-  .topbar { position: static; }
+  .side-brand, .side-foot { display: none; }
+  .side-nav { flex-direction: row; width: 100%; gap: 10px; }
+  .nav-btn { flex: 1; justify-content: center; padding: 12px 10px; font-size: 14px; }
+  /* keep the flame, but don't let embers poke below the bar */
+  .nav-btn.shal::before, .nav-btn.shal::after { bottom: 6px; }
+
+  /* clear the bottom bar */
+  .content main { padding-bottom: 86px; }
+  footer { padding-bottom: 90px; }
+
+  /* Compact topbar with notch-safe padding */
+  .topbar { padding: 10px 16px; padding-top: calc(10px + env(safe-area-inset-top)); }
+  .brand { gap: 10px; }
+  .brand .logo { font-size: 24px; }
+  .brand h1 { font-size: 16px; }
+  .tagline { display: none; }
+  .update { display: none; }
+  .btn { width: 40px; height: 40px; }
 }
 
 @media (max-width: 720px) {
-  .price-card { grid-template-columns: 1fr; }
-  .controls { flex-direction: column; align-items: stretch; }
+  main { padding: 16px 14px; }
+
+  /* Controls: symbol + timeframe always visible, the rest behind ⚙ Settings */
+  .controls { flex-direction: column; align-items: stretch; gap: 10px; }
+  .tabs { display: grid; grid-template-columns: 1fr 1fr; }
+  .tab { padding: 12px 14px; text-align: center; }
   .range-group { justify-content: space-between; }
+  .chip { flex: 1; padding: 10px 8px; }
+
+  .adv-toggle {
+    display: block;
+    background: var(--card); border: 1px solid var(--border); color: var(--muted);
+    border-radius: 10px; padding: 12px 14px; font-size: 13px; font-weight: 600;
+    cursor: pointer; font-family: inherit; text-align: center;
+  }
+  .adv-toggle[aria-expanded="true"] { color: var(--text); border-color: var(--accent); }
+  .adv {
+    display: none;
+    flex-direction: column; gap: 12px;
+    background: var(--card); border: 1px solid var(--border); border-radius: 12px;
+    padding: 14px;
+  }
+  .adv.open { display: flex; }
+  .adv .session-inputs input[type="time"] { flex: 1; padding: 10px; font-size: 15px; }
+  .adv .auto { font-size: 14px; padding: 4px 0; }
+  .adv .auto input { width: 18px; height: 18px; }
+  .btn-wide { padding: 12px 14px; }
+
+  .price-card { grid-template-columns: 1fr; padding: 16px; gap: 14px; }
   .price { font-size: 34px; }
+  .stat-grid { grid-template-columns: repeat(2, 1fr); }
   .plan-grid { grid-template-columns: repeat(2, 1fr); }
   .chart-box { height: 300px; }
+  .chart-card { padding: 12px; }
+  .summary-card { padding: 16px; }
+
+  /* Shal View on a phone */
   #orbCanvas { height: 170px; }
-  .shal-hero { padding: 18px; }
+  .shal-hero { padding: 18px 16px; }
+  .shal-card { padding: 16px; }
+  .orb-zones { padding: 0 14px; }
+  .matrix-grid { grid-template-columns: 1fr 1fr; }
+  .tele-grid { grid-template-columns: 1fr 1fr; }
 }
