@@ -381,7 +381,8 @@ function rsi(values, period = 14) {
 }
 function macdHist(values) {
   if (values.length < 26) return 0;
-  const line = emaSeries(values, 12).map((v, i) => v - emaSeries(values, 26)[i]);
+  const e12 = emaSeries(values, 12), e26 = emaSeries(values, 26);
+  const line = e12.map((v, i) => v - e26[i]);
   const sig = emaSeries(line, 9);
   return line[line.length - 1] - sig[sig.length - 1];
 }
@@ -406,7 +407,10 @@ function openingRange(series, session) {
 
 // Six independent intraday strategies, each votes +1 (buy), -1 (sell), or 0.
 // A trade only fires when enough of them agree — fewer, higher-quality signals.
-function strategyVotes(series, context, session) {
+// The six votes given a price slice, a session (for VWAP/opening-range), and a
+// precomputed 1H-sweep vote. Shared by the live signal and the backtest so they
+// are guaranteed identical.
+function votesFrom(series, session, sweepVote) {
   const closes = series.map((c) => c.c);
   const price = closes[closes.length - 1];
   const votes = [];
@@ -432,25 +436,31 @@ function strategyVotes(series, context, session) {
   votes.push({ name: "Opening range", v: or ? (price > or.h ? 1 : price < or.l ? -1 : 0) : 0 });
 
   // 6. JadeCap 1H swing-failure sweep
-  const sfp = detectSFP(context, swings(context, 1));
-  votes.push({ name: "1H sweep (JadeCap)", v: sfp ? (sfp.dir === "long" ? 1 : -1) : 0, sfp });
+  votes.push({ name: "1H sweep (JadeCap)", v: sweepVote });
 
   return votes;
+}
+
+function strategyVotes(series, context, session) {
+  const sfp = detectSFP(context, swings(context, 1));
+  return votesFrom(series, session, sfp ? (sfp.dir === "long" ? 1 : -1) : 0);
+}
+
+// Net direction from a vote list: needs a clear majority (net ≥ 3) to trade.
+function votesToDir(votes) {
+  const long = votes.filter((x) => x.v > 0).length;
+  const short = votes.filter((x) => x.v < 0).length;
+  const net = long - short;
+  return { dir: net >= 3 ? "long" : net <= -3 ? "short" : null, long, short, agree: Math.max(long, short) };
 }
 
 // Combine the votes into a single BUY / SELL / WAIT call with a scalp plan.
 function buildICT(series, context, session) {
   const price = series[series.length - 1].c;
   const votes = strategyVotes(series, context, session);
-  const long = votes.filter((x) => x.v > 0).length;
-  const short = votes.filter((x) => x.v < 0).length;
-  const net = long - short;
-  const agree = Math.max(long, short);
+  const { dir, agree } = votesToDir(votes);
   const total = votes.length;
   const inKz = session.status === "open";
-
-  // Need a clear majority (net ≥ 3) to take a trade.
-  const dir = net >= 3 ? "long" : net <= -3 ? "short" : null;
   const names = dir ? votes.filter((x) => (dir === "long" ? x.v > 0 : x.v < 0)).map((x) => x.name) : [];
   const confidence = agree >= 6 ? "VERY STRONG" : agree >= 5 ? "STRONG" : agree >= 4 ? "MODERATE" : "BUILDING";
 
@@ -633,6 +643,170 @@ function renderTradeAssistant(sig) {
   }
 }
 
+/* ---------- Backtest (walk-forward, same ensemble) ---------- */
+
+const INTERVAL_MS = { "1m": 60000, "5m": 300000, "15m": 900000, "1h": 3600000, "1d": 86400000 };
+// Longest history each interval can pull for the backtest.
+const BT_RANGE = { "1m": "5d", "5m": "1mo", "15m": "1mo", "1h": "3mo", "1d": "1y" };
+
+// All confirmed 1H swing-failure events (time + direction), for as-of lookup.
+function collectSFPs(context) {
+  const sw = swings(context, 1);
+  const events = [];
+  for (const sh of sw.highs)
+    for (let j = sh.i + 1; j < context.length; j++) {
+      const c = context[j];
+      if (c.h > sh.price && c.c < sh.price) { events.push({ t: c.t, dir: -1 }); break; }
+      if (c.c > sh.price) break;
+    }
+  for (const sl of sw.lows)
+    for (let j = sl.i + 1; j < context.length; j++) {
+      const c = context[j];
+      if (c.l < sl.price && c.c > sl.price) { events.push({ t: c.t, dir: 1 }); break; }
+      if (c.c < sl.price) break;
+    }
+  events.sort((a, b) => a.t - b.t);
+  return events;
+}
+// Latest SFP vote as of time t, valid for 48h (matches the live 48-bar window).
+function sweepVoteAsOf(events, t) {
+  let v = 0;
+  for (const e of events) {
+    if (e.t > t) break;
+    if (e.t >= t - 48 * HOUR) v = e.dir;
+  }
+  return v;
+}
+
+async function fetchBacktestData(symbol) {
+  const entry = parseSeries(await fetchChart(symbol, BT_RANGE[state.tf] || "1mo", state.interval));
+  const context1h = parseSeries(await fetchChart(symbol, "3mo", "1h"));
+  return { entry, context1h };
+}
+
+// Walk the history bar by bar; at each in-killzone bar compute the SAME ensemble
+// on a trailing window and simulate a scalp (1.2×ATR stop, 1.5R target, exit by
+// session end), one position at a time. No lookahead.
+function runBacktest(entry, context1h, s, e) {
+  const events = collectSFPs(context1h);
+  const lb = Math.max(60, Math.round((TIMEFRAMES[state.tf].lookbackMs) / (INTERVAL_MS[state.interval] || 60000)));
+  const trades = [];
+  let resumeAt = 0;
+
+  for (let i = 60; i < entry.length; i++) {
+    if (i < resumeAt) continue;
+    const bar = entry[i], t = bar.t, d = new Date(t);
+    const wd = etParts(d).weekday;
+    if (wd === "Sat" || wd === "Sun") continue;
+    const sStart = etWallClockTs(d, s.h, s.m), sEnd = etWallClockTs(d, e.h, e.m);
+    if (t < sStart || t > sEnd) continue; // only trade the killzone
+
+    const slice = entry.slice(Math.max(0, i - lb), i + 1);
+    if (slice.length < 55) continue;
+    const votes = votesFrom(slice, { startToday: sStart, endToday: sEnd, status: "open" }, sweepVoteAsOf(events, t));
+    const { dir } = votesToDir(votes);
+    if (!dir) continue;
+
+    const px = bar.c, atr = avgRange(slice);
+    const stop = dir === "long" ? px - atr * 1.2 : px + atr * 1.2;
+    const risk = Math.abs(px - stop);
+    if (!(risk > 0)) continue;
+    const target = dir === "long" ? px + risk * 1.5 : px - risk * 1.5;
+
+    // Simulate forward.
+    let r = null, exit = i;
+    for (let j = i + 1; j < entry.length; j++) {
+      const b = entry[j]; exit = j;
+      const hitStop = dir === "long" ? b.l <= stop : b.h >= stop;
+      const hitTgt = dir === "long" ? b.h >= target : b.l <= target;
+      if (hitStop) { r = -1; break; }          // assume stop before target intrabar
+      if (hitTgt) { r = 1.5; break; }
+      if (b.t >= sEnd) { r = (dir === "long" ? b.c - px : px - b.c) / risk; break; } // time-stop at session end
+    }
+    if (r == null) { const b = entry[entry.length - 1]; r = (dir === "long" ? b.c - px : px - b.c) / risk; exit = entry.length - 1; }
+    trades.push({ dir, r, t });
+    resumeAt = exit + 1; // one position at a time
+  }
+  return trades;
+}
+
+const BT_NOTE =
+  "Simulated, not live results. Fixed 1.5R target / 1.2×ATR stop, one position at a time, time-stopped at session end, killzone only. No fees or slippage; assumes the stop fills before the target within a bar (conservative). Free data is delayed and intraday history is limited. Past performance ≠ future results.";
+
+function equityCurveSVG(trades) {
+  const W = 640, H = 130, pad = 10;
+  const pts = [0];
+  let cum = 0;
+  for (const t of trades) { cum += t.r; pts.push(cum); }
+  const min = Math.min(...pts, 0), max = Math.max(...pts, 0), rng = max - min || 1;
+  const x = (i) => pad + (i * (W - 2 * pad)) / (pts.length - 1 || 1);
+  const y = (v) => pad + ((max - v) / rng) * (H - 2 * pad);
+  const path = pts.map((v, i) => `${i ? "L" : "M"}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(" ");
+  const col = cum >= 0 ? "#22c55e" : "#ef4444";
+  return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" width="100%" height="${H}">
+    <line x1="${pad}" y1="${y(0).toFixed(1)}" x2="${W - pad}" y2="${y(0).toFixed(1)}" stroke="#3a4557" stroke-dasharray="4 4"/>
+    <path d="${path}" fill="none" stroke="${col}" stroke-width="2"/></svg>`;
+}
+
+function renderBacktest(trades, spanText) {
+  const card = $("backtestCard");
+  card.hidden = false;
+  $("btMeta").textContent = spanText;
+  $("btNote").textContent = BT_NOTE;
+
+  const n = trades.length;
+  if (!n) {
+    $("btStats").innerHTML = "";
+    $("btCurve").innerHTML = `<div class="bt-empty">No trades triggered in the killzone over this window — the ensemble stayed flat. Try another timeframe or widen the session.</div>`;
+    return;
+  }
+  const wins = trades.filter((t) => t.r > 0).length;
+  const totalR = trades.reduce((a, b) => a + b.r, 0);
+  const gW = trades.filter((t) => t.r > 0).reduce((a, b) => a + b.r, 0);
+  const gL = Math.abs(trades.filter((t) => t.r < 0).reduce((a, b) => a + b.r, 0));
+  const pf = gL ? gW / gL : gW > 0 ? Infinity : 0;
+  let peak = 0, c = 0, dd = 0;
+  for (const t of trades) { c += t.r; peak = Math.max(peak, c); dd = Math.max(dd, peak - c); }
+
+  const tiles = [
+    ["Trades", String(n)],
+    ["Win rate", (wins / n * 100).toFixed(1) + "%"],
+    ["Avg / trade", (totalR / n >= 0 ? "+" : "") + (totalR / n).toFixed(2) + "R"],
+    ["Total", (totalR >= 0 ? "+" : "") + totalR.toFixed(1) + "R"],
+    ["Profit factor", pf === Infinity ? "∞" : pf.toFixed(2)],
+    ["Max drawdown", "−" + dd.toFixed(1) + "R"],
+  ];
+  $("btStats").innerHTML = tiles
+    .map(([l, v]) => `<div class="stat"><div class="label">${l}</div><div class="value">${v}</div></div>`)
+    .join("");
+  $("btCurve").innerHTML = equityCurveSVG(trades);
+}
+
+async function backtest() {
+  const btn = $("btBtn");
+  btn.disabled = true;
+  const label = btn.textContent;
+  btn.textContent = "Running…";
+  try {
+    const { entry, context1h } = await fetchBacktestData(state.symbol);
+    if (entry.length < 100) throw new Error("Not enough history returned");
+    const s = parseHM($("sessStart").value), e = parseHM($("sessEnd").value);
+    const trades = runBacktest(entry, context1h, s, e);
+    const days = Math.round((entry[entry.length - 1].t - entry[0].t) / DAY);
+    renderBacktest(trades, `${SYMBOLS[state.symbol].name} · ${state.tf} · ~${days} days · ${$("sessStart").value}–${$("sessEnd").value} ET`);
+    $("backtestCard").scrollIntoView({ behavior: "smooth", block: "start" });
+  } catch (err) {
+    $("backtestCard").hidden = false;
+    $("btMeta").textContent = "";
+    $("btStats").innerHTML = "";
+    $("btCurve").innerHTML = `<div class="bt-empty">Backtest failed: ${err.message}. Data proxies may be rate-limited — try again in a moment.</div>`;
+    console.error(err);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = label;
+  }
+}
+
 /* ---------- Orchestration ---------- */
 
 async function load() {
@@ -690,6 +864,7 @@ document.querySelectorAll("#tfGroup .chip").forEach((btn) => {
 });
 
 $("refreshBtn").addEventListener("click", load);
+$("btBtn").addEventListener("click", backtest);
 $("autoRefresh").addEventListener("change", (e) => setAuto(e.target.checked));
 ["sessStart", "sessEnd"].forEach((id) => $(id).addEventListener("change", () => load()));
 

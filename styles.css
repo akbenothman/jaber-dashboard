@@ -200,6 +200,21 @@ main { max-width: 1000px; margin: 0 auto; padding: 24px; }
 .action-line.wait { color: var(--amber); }
 @media (max-width: 720px) { .action-line { font-size: 20px; } }
 
+/* Backtest */
+.btn-wide {
+  background: var(--card-2); color: var(--text); border: 1px solid var(--border);
+  border-radius: 10px; padding: 9px 14px; font-size: 13px; font-weight: 600; cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+.btn-wide:hover { background: var(--accent); border-color: var(--accent); }
+.btn-wide:disabled { opacity: 0.6; cursor: progress; }
+.bt-meta { font-size: 12px; color: var(--muted); }
+.bt-stats { grid-template-columns: repeat(6, 1fr); margin: 16px 0; }
+.bt-stats .value { font-size: 18px; }
+.bt-curve { margin: 6px 0 14px; background: var(--card-2); border: 1px solid var(--border); border-radius: 10px; padding: 8px; }
+.bt-empty { color: var(--muted); font-size: 13px; padding: 20px; text-align: center; }
+@media (max-width: 720px) { .bt-stats { grid-template-columns: repeat(3, 1fr); } }
+
 footer { text-align: center; color: var(--muted); font-size: 11px; padding: 24px; }
 
 @media (max-width: 720px) {

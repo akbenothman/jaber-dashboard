@@ -57,6 +57,8 @@
         <input type="checkbox" id="autoRefresh" checked />
         Auto-refresh (30s)
       </label>
+
+      <button id="btBtn" class="btn-wide" title="Backtest this exact signal over recent history">⏱ Backtest</button>
     </section>
 
     <!-- Price header -->
@@ -101,6 +103,16 @@
         during your NY Open window, with a tight ~1.5R scalp plan. These are probabilities,
         not certainties — size small and manage risk.
       </p>
+    </section>
+    <!-- Backtest results -->
+    <section class="summary-card" id="backtestCard" hidden>
+      <div class="summary-head">
+        <h2>Backtest</h2>
+        <span class="bt-meta" id="btMeta"></span>
+      </div>
+      <div class="stat-grid bt-stats" id="btStats"></div>
+      <div class="bt-curve" id="btCurve"></div>
+      <p class="disclaimer" id="btNote"></p>
     </section>
   </main>
 

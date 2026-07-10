@@ -30,6 +30,13 @@ No backend, no API key, no build step — just static files you can host anywher
   NY Open window (default **06:00–09:00 ET**, DST-aware, adjustable). Confidence is
   shown as the vote count (e.g. "5/6 agree · STRONG"). VWAP and the entry/stop/
   target are drawn on the chart. Designed for quick in-and-out intraday scalps.
+- **Backtest** — the **⏱ Backtest** button runs the *exact same* ensemble
+  walk-forward over recent history for the selected symbol/timeframe (no
+  lookahead: each bar is scored on a trailing window, one position at a time,
+  killzone only). Reports **trades, win rate, avg R, total R, profit factor and
+  max drawdown**, with an equity curve. Simplified simulation (no fees/slippage,
+  conservative intrabar fills, delayed/limited free data) — a sanity check, not a
+  promise of live results.
 - **Auto-refresh** every 30 seconds (toggleable) plus a manual refresh button,
   with a live killzone countdown.
 - **Resilient data** — widening range fallback, multi-proxy chain with
