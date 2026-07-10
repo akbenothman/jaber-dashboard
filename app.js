@@ -17,6 +17,7 @@ const TIMEFRAMES = {
   "5m": { interval: "5m", baseRange: "5d", lookbackMs: 3 * DAY },
   "15m": { interval: "15m", baseRange: "5d", lookbackMs: 5 * DAY },
   "1h": { interval: "1h", baseRange: "1mo", lookbackMs: 22 * DAY },
+  "1d": { interval: "1d", baseRange: "1y", lookbackMs: 186 * DAY },
 };
 
 const state = {
