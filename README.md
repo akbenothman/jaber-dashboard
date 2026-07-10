@@ -10,6 +10,10 @@ No backend, no API key, no build step — just static files you can host anywher
 ## Features
 
 - **Live pricing** for Gold and Nasdaq-100 futures (near-real-time via Yahoo Finance).
+- **Nasdaq Futures/Index toggle** — defaults to **NQ=F** (CME E-mini futures, the
+  contract TopStep/prop traders use); flip to **^NDX** (cash index) to compare
+  against a TradingView `NDX`/`US100` chart. The price line shows the exchange and
+  the current data delay (e.g. `NQ=F · CME · ~10m delayed`) since the free feed lags.
 - **TradingView-style candlestick chart** (TradingView's own open-source
   [Lightweight Charts](https://github.com/tradingview/lightweight-charts)):
   real candles, **scroll/pinch to zoom, drag to pan**, double-click to reset.
