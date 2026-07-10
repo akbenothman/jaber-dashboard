@@ -16,17 +16,21 @@ No backend, no API key, no build step — just static files you can host anywher
   Candle times are shown in **New York time**.
 - **Day-trading timeframes** — one-click **1m / 5m / 15m / 1h / 1D**, each with a
   session-sized lookback. Defaults to the live **1-minute** view.
-- **ICT / CRT Trade Assistant** — an educational rules engine that detects:
-  - **Liquidity sweeps** of prev-day / overnight / session highs & lows
-  - **Market-structure shifts** (break of a swing high/low)
-  - **Fair-value gaps** (3-candle imbalances)
-  - the **CRT** candle model on the 1-hour timeframe (range purge → expansion)
-  - **premium/discount** relative to the range midpoint
+- **JadeCap Daily-Sweep Model** — an educational implementation of JadeCap's
+  "one strategy for life." The engine:
+  1. **Bias from the 1-hour chart** — finds the most recent confirmed
+     **swing-failure pattern (SFP)**: price raids a 1H swing high/low and
+     *closes back inside*. Sweep of a high → short bias; sweep of a low → long.
+  2. **Refines entry on your chart timeframe** — an aligned fair-value gap or
+     market-structure shift.
+  3. **Stop** beyond the swept 1H wick; **target** the next opposing 1H liquidity.
+  4. **Premium/discount** check for entry location.
 
-  It combines these into a **LONG / SHORT / WAIT** call with an entry, stop,
-  target and reward:risk — and **only green-lights a trade inside your NY Open
-  killzone** (default **06:00–09:00 ET**, adjustable) when reward:risk ≥ 1:1.
-  Key levels (PDH/PDL, entry/stop/target) are drawn on the chart.
+  It outputs a **LONG / SHORT / WAIT** call with entry, stop, target and
+  reward:risk, and **only green-lights a trade inside your NY Open killzone**
+  (default **06:00–09:00 ET**, DST-aware, adjustable) when reward:risk ≥ 1:1 —
+  JadeCap targets ~2R+. The swept 1H level, PDH/PDL and entry/stop/target are
+  drawn on the chart.
 - **Auto-refresh** every 30 seconds (toggleable) plus a manual refresh button,
   with a live killzone countdown.
 - **Resilient data** — widening range fallback, multi-proxy chain with

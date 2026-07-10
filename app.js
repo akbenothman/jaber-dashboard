@@ -320,103 +320,119 @@ function oppLiquidity(dir, entry, { daily, pre, sess }) {
   return dir === "long" ? ups[0] ?? null : dns[0] ?? null;
 }
 
+// JadeCap "Daily Sweep": the most recent CONFIRMED 1H swing-failure pattern —
+// price raids a 1H swing high/low then closes back inside. That sweep sets the
+// bias and the protective level. Only look at the last ~48 hourly candles.
+function detectSFP(context, sw) {
+  const n = context.length;
+  let best = null;
+  const record = (o) => { if (!best || o.j > best.j) best = o; };
+  for (const sh of sw.highs) {
+    for (let j = sh.i + 1; j < n; j++) {
+      const c = context[j];
+      if (c.h > sh.price && c.c < sh.price) { record({ dir: "short", swing: sh.price, j, wick: c.h }); break; }
+      if (c.c > sh.price) break; // level broken (closed through) → not a sweep
+    }
+  }
+  for (const sl of sw.lows) {
+    for (let j = sl.i + 1; j < n; j++) {
+      const c = context[j];
+      if (c.l < sl.price && c.c > sl.price) { record({ dir: "long", swing: sl.price, j, wick: c.l }); break; }
+      if (c.c < sl.price) break;
+    }
+  }
+  if (best && best.j < n - 48) best = null; // stale sweep → ignore
+  return best;
+}
+
+// Next opposing 1H swing that price can run to (the JadeCap target liquidity).
+function nextOpposingSwing(dir, price, sw) {
+  if (dir === "long") {
+    const ups = sw.highs.map((h) => h.price).filter((p) => p > price).sort((a, b) => a - b);
+    return ups[0] ?? null;
+  }
+  const dns = sw.lows.map((l) => l.price).filter((p) => p < price).sort((a, b) => b - a);
+  return dns[0] ?? null;
+}
+
+// JadeCap Daily-Sweep model: 1H swing-failure sets bias & stop; lower timeframe
+// (the selected chart TF) refines entry via FVG / structure shift; target is the
+// next opposing 1H liquidity; execution gated to the NY Open killzone.
 function buildICT(series, context, session) {
   const now = new Date();
   const last = series[series.length - 1];
   const price = last.c;
 
   const daily = dailyLevels(context, now);
-  const pre = preSessionRange(context, session, now);
-  const sess = sessionRangeSoFar(series, session);
+  const hourly = swings(context, 1); // 1H swing points (3-candle fractal)
+  const sfp = detectSFP(context, hourly);
+  const dir = sfp ? sfp.dir : null;
 
-  const levels = [];
-  if (daily.pdh != null) levels.push({ name: "Prev Day High", price: daily.pdh, side: "buy" });
-  if (daily.pdl != null) levels.push({ name: "Prev Day Low", price: daily.pdl, side: "sell" });
-  if (pre) { levels.push({ name: "Overnight High", price: pre.h, side: "buy" }); levels.push({ name: "Overnight Low", price: pre.l, side: "sell" }); }
-  if (sess) { levels.push({ name: "Session High", price: sess.h, side: "buy" }); levels.push({ name: "Session Low", price: sess.l, side: "sell" }); }
+  // Lower-timeframe entry refinement (must agree with the 1H bias).
+  const fvgRaw = detectFVG(series);
+  const fvg = fvgRaw && dir && fvgRaw.dir === dir ? fvgRaw : null;
+  const mssRaw = detectMSS(series);
+  const mss = mssRaw && dir && mssRaw.dir === dir ? mssRaw : null;
 
-  const sweep = detectSweep(series, levels);
-  const mss = detectMSS(series);
-  const fvg = detectFVG(series);
-  const crt = detectCRT(context);
-  const refRange = pre || sess || (daily.pdh != null ? { h: daily.pdh, l: daily.pdl } : null);
-  const pd = refRange ? (price < (refRange.h + refRange.l) / 2 ? "discount" : "premium") : null;
+  const target0 = dir ? nextOpposingSwing(dir, price, hourly) : null;
+  let pd = null;
+  if (dir && sfp && target0 != null) {
+    const eq = (sfp.swing + target0) / 2;
+    pd = dir === "long" ? (price < eq ? "discount" : "premium") : (price > eq ? "premium" : "discount");
+  }
+  const pdGood = pd && ((dir === "long" && pd === "discount") || (dir === "short" && pd === "premium"));
+  const tag = dir === "long" ? "bull" : "bear";
 
+  // Confluence checklist mirrors JadeCap's steps.
   const confluences = [];
-  let long = 0, short = 0;
+  if (sfp)
+    confluences.push([tag,
+      `1H swing failure — swept ${dir === "long" ? "a swing low (sell-side)" : "a swing high (buy-side)"} & closed back inside`,
+      fmtP(sfp.swing)]);
+  else confluences.push(["neutral", "Waiting for a 1H swing failure (the daily sweep)", "1H"]);
 
-  if (sweep) {
-    sweep.dir === "long" ? long++ : short++;
-    confluences.push([sweep.dir === "long" ? "bull" : "bear",
-      `Liquidity sweep of ${sweep.level.name} — ${sweep.dir === "long" ? "sell-side taken, rejected up" : "buy-side taken, rejected down"}`,
-      fmtP(sweep.price)]);
-  } else confluences.push(["neutral", "No fresh liquidity sweep", "—"]);
+  if (fvg) confluences.push([tag, `Entry: ${state.tf} fair-value gap in bias direction`, `${fmtP(fvg.bottom)}–${fmtP(fvg.top)}`]);
+  else confluences.push(["neutral", `No aligned ${state.tf} fair-value gap yet`, "—"]);
 
-  if (mss) {
-    mss.dir === "long" ? long++ : short++;
-    confluences.push([mss.dir === "long" ? "bull" : "bear",
-      `Market-structure shift ${mss.dir === "long" ? "up (broke swing high)" : "down (broke swing low)"}`,
-      fmtP(mss.level)]);
-  } else confluences.push(["neutral", "No market-structure shift yet", "—"]);
+  if (mss) confluences.push([tag, `${state.tf} structure shift confirms ${dir}`, fmtP(mss.level)]);
+  else confluences.push(["neutral", "No confirming structure shift yet", "—"]);
 
-  if (fvg) {
-    fvg.dir === "long" ? long++ : short++;
-    confluences.push([fvg.dir === "long" ? "bull" : "bear",
-      `${fvg.dir === "long" ? "Bullish" : "Bearish"} fair-value gap to fill`,
-      `${fmtP(fvg.bottom)}–${fmtP(fvg.top)}`]);
-  } else confluences.push(["neutral", "No recent fair-value gap", "—"]);
+  if (pd) confluences.push([pdGood ? tag : "neutral", `Price in ${pd}${pdGood ? " — good entry location" : " — wait for better price"}`, pdGood ? "✓" : "…"]);
+  else confluences.push(["neutral", "Premium/discount n/a", "—"]);
 
-  if (crt) {
-    crt.dir === "long" ? long++ : short++;
-    confluences.push([crt.dir === "long" ? "bull" : "bear", `CRT model ${crt.dir.toUpperCase()} — ${crt.note}`, "1H"]);
-  } else confluences.push(["neutral", "CRT model neutral (no clean purge)", "1H"]);
-
-  if (pd === "discount") { long += 0.5; confluences.push(["bull", "Price in discount (below range midpoint) — favors longs", "disc"]); }
-  else if (pd === "premium") { short += 0.5; confluences.push(["bear", "Price in premium (above range midpoint) — favors shorts", "prem"]); }
-
-  let dir = null;
-  if (long > short && long >= 2) dir = "long";
-  else if (short > long && short >= 2) dir = "short";
+  confluences.push([session.status === "open" ? tag : "neutral", session.label, session.status === "open" ? "LIVE" : "—"]);
 
   const inKz = session.status === "open";
-  let verdict, text, plan = null;
+  let verdict = "wait", text, plan = null;
 
   if (!dir) {
-    verdict = "wait";
-    text = inKz
-      ? "In the NY Open killzone, but confluences are mixed — no A+ setup yet. Wait for a sweep + structure shift to align."
-      : `No aligned setup. ${session.label}. The model wants sweep → shift → FVG entry during your killzone.`;
-  } else if (!inKz) {
-    verdict = "wait";
-    text = `A ${dir} bias is forming (${(dir === "long" ? long : short)} confluences), but it's outside your killzone. ${session.label}. Wait for the window.`;
+    text = `No confirmed 1H swing failure yet. JadeCap's Daily Sweep needs price to raid an hourly swing high/low and close back inside before there's a bias. ${inKz ? "You're in your killzone — watch the 1H for a sweep." : session.label + "."}`;
   } else {
-    verdict = dir;
     const buf = avgRange(series) * 0.5;
     const entry = fvg ? (fvg.top + fvg.bottom) / 2 : price;
-    let stop, target;
-    if (dir === "long") {
-      const low = sweep ? Math.min(sweep.price, last.l) : sess ? sess.l : pre ? pre.l : price;
-      stop = Math.min(low, fvg ? fvg.bottom : entry) - buf;
-      target = oppLiquidity("long", entry, { daily, pre, sess });
-    } else {
-      const high = sweep ? Math.max(sweep.price, last.h) : sess ? sess.h : pre ? pre.h : price;
-      stop = Math.max(high, fvg ? fvg.top : entry) + buf;
-      target = oppLiquidity("short", entry, { daily, pre, sess });
-    }
+    const stop = dir === "long" ? sfp.wick - buf : sfp.wick + buf;
     const risk = Math.abs(entry - stop);
-    if (target == null) target = dir === "long" ? entry + risk * 2 : entry - risk * 2;
+    let target = target0 != null ? target0 : dir === "long" ? entry + risk * 2 : entry - risk * 2;
+    if (dir === "long" && target <= entry) target = entry + risk * 2;
+    if (dir === "short" && target >= entry) target = entry - risk * 2;
     const rr = risk > 0 ? Math.abs(target - entry) / risk : 0;
     plan = { dir, entry, stop, target, rr };
-    if (rr < 1) {
-      // A valid pattern but the math doesn't pay — don't green-light it.
-      verdict = "wait";
-      text = `${dir === "long" ? "LONG" : "SHORT"} pattern is forming in the killzone, but reward:risk is only ${rr.toFixed(2)}:1 (below 1:1). Skip it and wait for price to offer a cleaner entry against nearer liquidity. Levels shown for reference.`;
+    const name = dir === "long" ? "LONG" : "SHORT";
+
+    if (!inKz) {
+      text = `${name} daily-sweep bias is set — the 1H swept ${dir === "long" ? "sell-side and reversed up" : "buy-side and reversed down"}. But it's outside your NY Open window (${session.label}). Per your plan, execute 6–9 AM ET. Levels staged below.`;
+    } else if (!fvg && !mss) {
+      text = `${name} bias set from the 1H sweep and you're in the killzone — now wait for a lower-TF trigger (a ${state.tf} fair-value gap or structure shift) before entering.`;
+    } else if (rr < 1) {
+      text = `${name} setup is valid but reward:risk to the next 1H liquidity is only ${rr.toFixed(2)}:1. JadeCap targets ~2R+ — skip, or wait for a deeper ${dir === "long" ? "discount" : "premium"} entry.`;
     } else {
-      text = `${dir === "long" ? "LONG" : "SHORT"} setup in the killzone with ${(dir === "long" ? long : short)} confluences. Enter on the ${fvg ? "fair-value gap" : "current level"}, stop beyond the swept ${dir === "long" ? "low" : "high"}, target opposite liquidity. Manage risk — this is a probability, not a guarantee.`;
+      verdict = dir;
+      text = `${name} — JadeCap Daily Sweep is LIVE: 1H swept ${dir === "long" ? "a swing low" : "a swing high"} and closed back inside, you're in the killzone, and ${state.tf} offers ${fvg ? "an FVG" : "a structure-shift"} entry. Enter ${fvg ? "at the FVG" : "here"}, stop beyond the swept wick, target the next 1H liquidity (~${rr.toFixed(1)}R). Probability, not a guarantee — manage risk.`;
     }
   }
 
   const chartLevels = [];
+  if (sfp) chartLevels.push({ price: sfp.swing, color: "#f59e0b", title: "1H Sweep", dashed: true });
   if (daily.pdh != null) chartLevels.push({ price: daily.pdh, color: "#8a97ab", title: "PDH", dashed: true });
   if (daily.pdl != null) chartLevels.push({ price: daily.pdl, color: "#8a97ab", title: "PDL", dashed: true });
   if (plan) {
