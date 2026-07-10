@@ -8,15 +8,18 @@ const SYMBOLS = {
   "NQ=F": { name: "Nasdaq-100 Futures", unit: "", decimals: 2 },
 };
 
+const HOUR = 3600000;
 const DAY = 86400000;
 
 // Day-trading timeframes. Each button is a chart granularity plus how much
 // history to show: baseRange seeds the fetch, lookbackMs trims it client-side.
+// Intraday frames use tight, session-sized windows (futures trade ~24h, so a
+// full-day window would span two calendar dates and read as noise).
 const TIMEFRAMES = {
-  "1m": { interval: "1m", baseRange: "5d", lookbackMs: 1 * DAY },
-  "5m": { interval: "5m", baseRange: "5d", lookbackMs: 3 * DAY },
-  "15m": { interval: "15m", baseRange: "5d", lookbackMs: 5 * DAY },
-  "1h": { interval: "1h", baseRange: "1mo", lookbackMs: 22 * DAY },
+  "1m": { interval: "1m", baseRange: "5d", lookbackMs: 6 * HOUR },
+  "5m": { interval: "5m", baseRange: "5d", lookbackMs: 1 * DAY },
+  "15m": { interval: "15m", baseRange: "5d", lookbackMs: 2 * DAY },
+  "1h": { interval: "1h", baseRange: "1mo", lookbackMs: 10 * DAY },
   "1d": { interval: "1d", baseRange: "1y", lookbackMs: 186 * DAY },
 };
 
