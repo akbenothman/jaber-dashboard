@@ -807,6 +807,41 @@ async function backtest() {
   }
 }
 
+/* ---------- Alerts: tell me the moment it fires ---------- */
+
+let audioCtx = null;
+function beep() {
+  try {
+    audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+    const o = audioCtx.createOscillator(), g = audioCtx.createGain();
+    o.type = "sine"; o.frequency.value = 880;
+    o.connect(g); g.connect(audioCtx.destination);
+    const t = audioCtx.currentTime;
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.35, t + 0.02);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.5);
+    o.start(t); o.stop(t + 0.5);
+  } catch (_) { /* audio may be blocked until user interacts */ }
+}
+
+// Fire once per new actionable signal (not on every 30s refresh).
+let lastAlertKey = null;
+function maybeAlert(sig) {
+  const actionable = sig.verdict === "long" || sig.verdict === "short";
+  const key = actionable ? `${state.symbol}|${state.tf}|${sig.verdict}` : null;
+  if (actionable && key !== lastAlertKey && $("alertToggle").checked) {
+    beep();
+    try {
+      if (window.Notification && Notification.permission === "granted") {
+        new Notification(`${sig.verdict === "long" ? "🟢 BUY" : "🔴 SELL"} — ${SYMBOLS[state.symbol].name} (${state.tf})`, {
+          body: sig.action + "\n" + sig.text,
+        });
+      }
+    } catch (_) { /* ignore */ }
+  }
+  lastAlertKey = key;
+}
+
 /* ---------- Orchestration ---------- */
 
 async function load() {
@@ -824,6 +859,7 @@ async function load() {
     const ict = buildICT(series, context, sessionInfo());
     renderTradeAssistant(ict);
     renderChart(series, ict);
+    maybeAlert(ict);
 
     $("lastUpdate").textContent = "Updated " + new Date().toLocaleTimeString("en-US");
     $("chartLoading").classList.add("hidden");
@@ -866,6 +902,12 @@ document.querySelectorAll("#tfGroup .chip").forEach((btn) => {
 $("refreshBtn").addEventListener("click", load);
 $("btBtn").addEventListener("click", backtest);
 $("autoRefresh").addEventListener("change", (e) => setAuto(e.target.checked));
+$("alertToggle").addEventListener("change", (e) => {
+  if (e.target.checked) {
+    if (window.Notification && Notification.permission === "default") Notification.requestPermission();
+    beep(); // unlock audio + confirm it works
+  }
+});
 ["sessStart", "sessEnd"].forEach((id) => $(id).addEventListener("change", () => load()));
 
 // Live-tick the session countdown every second without refetching data.

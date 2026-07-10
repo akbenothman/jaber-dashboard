@@ -30,6 +30,9 @@ No backend, no API key, no build step — just static files you can host anywher
   NY Open window (default **06:00–09:00 ET**, DST-aware, adjustable). Confidence is
   shown as the vote count (e.g. "5/6 agree · STRONG"). VWAP and the entry/stop/
   target are drawn on the chart. Designed for quick in-and-out intraday scalps.
+  The signal is the **hero at the top of the page**, and a **🔔 Alert me** toggle
+  plays a sound + desktop notification the moment it flips to BUY/SELL in your
+  window — so you don't have to stare at it.
 - **Backtest** — the **⏱ Backtest** button runs the *exact same* ensemble
   walk-forward over recent history for the selected symbol/timeframe (no
   lookahead: each bar is scored on a trailing window, one position at a time,

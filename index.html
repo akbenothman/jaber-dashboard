@@ -58,7 +58,36 @@
         Auto-refresh (30s)
       </label>
 
+      <label class="auto">
+        <input type="checkbox" id="alertToggle" />
+        🔔 Alert me
+      </label>
+
       <button id="btBtn" class="btn-wide" title="Backtest this exact signal over recent history">⏱ Backtest</button>
+    </section>
+
+    <!-- Trade Signal (hero) -->
+    <section class="summary-card hero" id="tradeCard">
+      <div class="summary-head">
+        <h2>Trade Signal</h2>
+        <span class="verdict" id="verdict">—</span>
+      </div>
+
+      <div class="session-bar" id="sessionBar">
+        <span class="dot"></span><span id="sessionText">Checking session…</span>
+      </div>
+
+      <p class="action-line wait" id="actionLine">Analyzing…</p>
+      <div class="plan-grid" id="planGrid"></div>
+      <p class="summary-text" id="summaryText"></p>
+
+      <p class="disclaimer">
+        ⚠️ Educational multi-strategy signal (EMA trend, VWAP, RSI, MACD, opening-range
+        breakout, and JadeCap's 1H liquidity sweep) — <strong>not financial advice</strong>,
+        not affiliated with JadeCap. It only calls BUY/SELL when several strategies agree
+        during your NY Open window, with a tight ~1.5R scalp plan. These are probabilities,
+        not certainties — size small and manage risk.
+      </p>
     </section>
 
     <!-- Price header -->
@@ -81,29 +110,6 @@
       <div class="loading" id="chartLoading">Fetching live data…</div>
     </section>
 
-    <!-- ICT / CRT Trade Assistant -->
-    <section class="summary-card" id="tradeCard">
-      <div class="summary-head">
-        <h2>Trade Signal</h2>
-        <span class="verdict" id="verdict">—</span>
-      </div>
-
-      <div class="session-bar" id="sessionBar">
-        <span class="dot"></span><span id="sessionText">Checking session…</span>
-      </div>
-
-      <p class="action-line wait" id="actionLine">Analyzing…</p>
-      <div class="plan-grid" id="planGrid"></div>
-      <p class="summary-text" id="summaryText"></p>
-
-      <p class="disclaimer">
-        ⚠️ Educational multi-strategy signal (EMA trend, VWAP, RSI, MACD, opening-range
-        breakout, and JadeCap's 1H liquidity sweep) — <strong>not financial advice</strong>,
-        not affiliated with JadeCap. It only calls BUY/SELL when several strategies agree
-        during your NY Open window, with a tight ~1.5R scalp plan. These are probabilities,
-        not certainties — size small and manage risk.
-      </p>
-    </section>
     <!-- Backtest results -->
     <section class="summary-card" id="backtestCard" hidden>
       <div class="summary-head">
