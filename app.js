@@ -8,34 +8,37 @@ const SYMBOLS = {
   "NQ=F": { name: "Nasdaq-100 Futures", unit: "", decimals: 2 },
 };
 
+const DAY = 86400000;
+
+// Day-trading timeframes. Each button is a chart granularity plus how much
+// history to show: baseRange seeds the fetch, lookbackMs trims it client-side.
+const TIMEFRAMES = {
+  "1m": { interval: "1m", baseRange: "5d", lookbackMs: 1 * DAY },
+  "5m": { interval: "5m", baseRange: "5d", lookbackMs: 3 * DAY },
+  "15m": { interval: "15m", baseRange: "5d", lookbackMs: 5 * DAY },
+  "1h": { interval: "1h", baseRange: "1mo", lookbackMs: 22 * DAY },
+};
+
 const state = {
   symbol: "GC=F",
-  range: "1d",
-  interval: "1m",
+  tf: "1m",
+  ...TIMEFRAMES["1m"], // spreads interval, baseRange, lookbackMs
   autoTimer: null,
 };
 
-// Yahoo limits how far back each interval can go. Keep combos valid.
-const INTERVAL_ORDER = ["1m", "5m", "15m", "1h", "1d"];
+// Yahoo limits how far back each interval can go — used to widen safely.
 const INTERVAL_MAX_DAYS = { "1m": 7, "5m": 60, "15m": 60, "1h": 730, "1d": Infinity };
 const RANGE_DAYS = { "1d": 1, "5d": 5, "1mo": 31, "3mo": 93, "6mo": 186, "1y": 366, "2y": 731 };
-const DAY = 86400000;
-// Display lookback window per selected period (trimmed client-side).
-const PERIOD_LOOKBACK_MS = {
-  "1d": 1 * DAY, "5d": 5 * DAY, "1mo": 31 * DAY,
-  "3mo": 93 * DAY, "6mo": 186 * DAY, "1y": 366 * DAY,
-};
 // Widening ladder: Yahoo's own "1d"/"5d" buckets can be empty off-session, so
 // we request progressively larger ranges until one returns data, then trim.
 const RANGE_LADDER = ["1d", "5d", "1mo", "3mo", "6mo", "1y", "2y"];
 
 const intervalValid = (range, interval) => INTERVAL_MAX_DAYS[interval] >= RANGE_DAYS[range];
-const finestValidInterval = (range) => INTERVAL_ORDER.find((i) => intervalValid(range, i)) || "1d";
 
-// Candidate fetch ranges for a period+interval: the period and every larger
-// range still valid for that interval (so an empty bucket can fall through).
-function candidateRanges(period, interval) {
-  const start = RANGE_LADDER.indexOf(period);
+// Candidate fetch ranges: the timeframe's base range and every larger range
+// still valid for that interval (so an empty bucket can fall through).
+function candidateRanges(baseRange, interval) {
+  const start = RANGE_LADDER.indexOf(baseRange);
   return RANGE_LADDER.slice(start === -1 ? 0 : start).filter((r) => intervalValid(r, interval));
 }
 
@@ -73,12 +76,11 @@ async function fetchChart(symbol, period, interval) {
   throw new Error("All data sources unavailable");
 }
 
-// Keep only points within the selected period's lookback, measured from the
-// last available point (so an off-session market still shows a full window).
-function trimToPeriod(series, period) {
-  const lookback = PERIOD_LOOKBACK_MS[period];
-  if (!lookback || series.length < 2) return series;
-  const cutoff = series[series.length - 1].t - lookback;
+// Keep only points within the timeframe's lookback, measured from the last
+// available point (so an off-session market still shows a full window).
+function trimToPeriod(series, lookbackMs) {
+  if (!lookbackMs || series.length < 2) return series;
+  const cutoff = series[series.length - 1].t - lookbackMs;
   const trimmed = series.filter((d) => d.t >= cutoff);
   return trimmed.length >= 2 ? trimmed : series;
 }
@@ -342,8 +344,8 @@ async function load() {
   $("chartLoading").classList.remove("hidden");
   $("chartLoading").textContent = "Fetching live data…";
   try {
-    const result = await fetchChart(state.symbol, state.range, state.interval);
-    const series = trimToPeriod(parseSeries(result), state.range);
+    const result = await fetchChart(state.symbol, state.baseRange, state.interval);
+    const series = trimToPeriod(parseSeries(result), state.lookbackMs);
     if (series.length < 2) throw new Error("Not enough data");
 
     renderPrice(series, result.meta, result);
@@ -377,39 +379,12 @@ document.querySelectorAll("#symbolTabs .tab").forEach((btn) => {
   });
 });
 
-// Dim intervals that are invalid for the current period; return whether the
-// active interval had to change.
-function syncIntervalAvailability() {
-  let changed = false;
-  document.querySelectorAll("#intervalGroup .chip").forEach((b) => {
-    b.classList.toggle("disabled", !intervalValid(state.range, b.dataset.interval));
-  });
-  if (!intervalValid(state.range, state.interval)) {
-    state.interval = finestValidInterval(state.range);
-    changed = true;
-  }
-  document.querySelectorAll("#intervalGroup .chip").forEach((b) => {
-    b.classList.toggle("active", b.dataset.interval === state.interval);
-  });
-  return changed;
-}
-
-document.querySelectorAll("#rangeGroup .chip").forEach((btn) => {
+document.querySelectorAll("#tfGroup .chip").forEach((btn) => {
   btn.addEventListener("click", () => {
-    document.querySelectorAll("#rangeGroup .chip").forEach((b) => b.classList.remove("active"));
+    document.querySelectorAll("#tfGroup .chip").forEach((b) => b.classList.remove("active"));
     btn.classList.add("active");
-    state.range = btn.dataset.range;
-    syncIntervalAvailability();
-    load();
-  });
-});
-
-document.querySelectorAll("#intervalGroup .chip").forEach((btn) => {
-  btn.addEventListener("click", () => {
-    if (btn.classList.contains("disabled")) return;
-    document.querySelectorAll("#intervalGroup .chip").forEach((b) => b.classList.remove("active"));
-    btn.classList.add("active");
-    state.interval = btn.dataset.interval;
+    state.tf = btn.dataset.tf;
+    Object.assign(state, TIMEFRAMES[state.tf]); // interval, baseRange, lookbackMs
     load();
   });
 });
@@ -418,6 +393,5 @@ $("refreshBtn").addEventListener("click", load);
 $("autoRefresh").addEventListener("change", (e) => setAuto(e.target.checked));
 
 // Boot
-syncIntervalAvailability();
 load();
 setAuto(true);

@@ -9,13 +9,12 @@ No backend, no API key, no build step — just three files you can host anywhere
 ## Features
 
 - **Live pricing** for Gold and Nasdaq-100 futures (near-real-time via Yahoo Finance).
-- **Configurable history** — pick a **Period** (1D, 5D, 1M, 3M, 6M, 1Y) and an
-  independent **Interval** (1m, 5m, 15m, 1h, 1d). Intervals that a period can't
-  support (e.g. 1-minute over a year) are dimmed automatically. Defaults to a
-  live **1D / 1-minute** view.
-- **Resilient windowing** — Yahoo's intraday buckets can come back empty
-  off-session, so the app widens the request until it finds data, then trims
-  client-side to your selected window.
+- **Day-trading timeframes** — one-click **1m / 5m / 15m / 1h** charts, each with
+  a sensible intraday lookback (1m → ~1 day, 5m → 3 days, 15m → 5 days,
+  1h → ~1 month). Defaults to the live **1-minute** view.
+- **Resilient windowing** — Yahoo's intraday buckets can come back empty or
+  sparse off-session, so the app fetches a richer range and trims client-side to
+  the timeframe's window, so the chart is never nearly-empty early in a session.
 - **Auto-refresh** every 30 seconds (toggleable) plus a manual refresh button.
 - **Signal Summary** — a Buy/Hold/Sell read-out computed from:
   - Price vs. 20-period SMA
